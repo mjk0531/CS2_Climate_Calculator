@@ -32,10 +32,30 @@ Implemented from the document *Formula for Climate Settings*, validated against 
 | Clouds Amount | `100 − sunshine %` |
 | Clouds Chance | `min(100, Clouds Amount × 1.5)` |
 | Clouds Amount Deviation | `clamp(15 + σ(monthly cloud %), 15, 30)` |
-| Precipitation Chance | `min(100, avg precip days × 6)` |
-| Precipitation Amount | `min(100, avg(monthly mm / precip days) × 6.25)` |
+| Precipitation Chance | **v2:** `days × factor × (1 − 0.5 × convectivity)` · **v1:** `days × 6` |
+| Precipitation Amount | **v2:** intensity soft-knee (mm/day above 11 counts half) `× 6.25` · **v1:** raw `× 6.25` |
 | Precip. Amount Deviation | `clamp(Amount × 0.25, 10, 30)` |
-| Turbulence | `min(0.8, max(0.1, intensity/25 × temp_factor))`, `temp_factor = clamp((daily mean + 5)/15, 0.2, 1.0)` |
+| Turbulence | `min(0.8, max(0.1, intensity/25 × temp_factor × (1 + 0.5 × convectivity)))` |
+
+### The v2 precipitation model (default; v1 selectable in the UI)
+
+"Precipitation days" counts a day even if it only rained for one afternoon hour — which makes
+day-count-based Chance badly overstate warm convective climates (Charleston, Miami: brief
+thunderstorms) while being right for long frontal/monsoon rain. v2 fixes this with two ideas:
+
+- **Threshold-aware factor** — the doc's ×6 was the midpoint of the factors implied by the
+  official prefabs (SF 6.5, days counted at ≥0.01 in; Tampere 5.5, at ≥0.1 mm). v2 reads the
+  climate table's declared counting threshold (`unit precipitation days`) and uses 5.5 (<0.2 mm)
+  or 6.5 (≥0.2 mm) — restoring both prefab anchors exactly.
+- **Convectivity** = `warm((T−15)/10) × sunny((sun% − 40)/30)`, each clamped 0–1. Hot seasons that
+  stay sunny despite rain = short afternoon storms → Chance discounted up to −50% and Turbulence
+  boosted up to +50% (storm cells cycle weather faster). Overcast monsoon (Seoul jangma, Mumbai)
+  and frontal rain (London, Seattle) score ~0 and are untouched.
+
+Validated across **64 cities** covering every major regime — mediterranean, oceanic drizzle,
+subtropical thunderstorm belts (US Gulf/Southeast, Brisbane, Buenos Aires), East/South Asian
+monsoon, equatorial, desert, continental snow, subarctic, highland: convective climates drop
+(Miami summer 100→59, Houston 55→33, Chicago 60→41), everything else stays within a few points.
 
 > **Note on Tampere:** the official Tampere prefab is hand-tuned for aurora gameplay and snow visuals, so real-climate values intentionally differ. This app computes the real-climate-accurate values.
 

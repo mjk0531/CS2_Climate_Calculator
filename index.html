@@ -415,6 +415,10 @@
         <h2>CS2 Climate Settings</h2>
         <span class="sub">Global + per season — every field in the CS2 climate section</span>
         <div class="spacer"></div>
+        <select id="precipModel" title="Precipitation model" style="background:var(--card);border:1px solid var(--border);border-radius:8px;color:var(--text-2);padding:4px 8px;font-family:inherit;font-size:12px;">
+          <option value="v2" selected>Precip v2 · convective-corrected</option>
+          <option value="v1">Precip v1 · original doc</option>
+        </select>
         <button class="btn small" id="btnCopyAll">Copy all</button>
         <button class="btn small" id="btnExport">Export JSON</button>
       </div>
@@ -464,10 +468,11 @@
       <div><b>Clouds Amount</b> — <code>100 − sunshine %</code></div>
       <div><b>Clouds Chance</b> — <code>min(100, Clouds Amount × 1.5)</code></div>
       <div><b>Clouds Amount Deviation</b> — <code>clamp(15 + σ(monthly cloud %), 15, 30)</code></div>
-      <div><b>Precipitation Chance</b> — <code>min(100, avg precip days × 6)</code></div>
-      <div><b>Precipitation Amount</b> — <code>min(100, avg(monthly mm / precip days) × 6.25)</code></div>
+      <div><b>Precipitation Chance (v2)</b> — <code>days × factor × (1 − 0.5 × convectivity)</code>; factor 5.5 (≥0.1 mm counting) / 6.5 (≥0.25 mm) restores the SF/Tampere prefab anchors; v1: <code>days × 6</code></div>
+      <div><b>Convectivity</b> — <code>warm((T−15)/10) × sunny((sun% − 40)/30)</code>, each clamped 0–1. Hot + sunny-despite-rain = brief afternoon thunderstorms (Charleston, Miami) get up to −50% Chance; overcast monsoon/frontal rain (Seoul jangma, London) is untouched</div>
+      <div><b>Precipitation Amount (v2)</b> — intensity soft-knee: mm/day above 11 counts half (a few torrential events skew the mean), then <code>× 6.25</code>; v1: raw <code>× 6.25</code></div>
       <div><b>Precip. Amount Deviation</b> — <code>clamp(Amount × 0.25, 10, 30)</code></div>
-      <div><b>Turbulence</b> — <code>min(0.8, max(0.1, intensity/25 × temp_factor))</code>, temp_factor = <code>clamp((daily mean + 5)/15, 0.2, 1.0)</code></div>
+      <div><b>Turbulence</b> — <code>min(0.8, max(0.1, intensity/25 × temp_factor × (1 + 0.5 × convectivity)))</code>, temp_factor = <code>clamp((daily mean + 5)/15, 0.2, 1.0)</code> — convective storm cells cycle weather faster</div>
       <div><b>Start Time</b> — season start as a fraction of the year (Northern: Spring = Mar 1 ≈ 0.162 … / Southern: flipped)</div>
       <div><b>Max Sun Elevation</b> — <code>clamp(90 − |lat| + 23.44, 45, 90)</code>; clamp start defaults to 15° below that</div>
       <div><b>Aurora Chance / Strength</b> — latitude-based estimate: 0 below ~50°, scaling to ~68°; suppressed during bright high-latitude summers</div>
@@ -512,6 +517,8 @@ const state = {
   omDaily: null,            // cached Open-Meteo daily raw (for threshold re-agg)
   globals: defaultGlobals(),
   gDirty: new Set(),        // globals the user edited by hand (not auto-recomputed)
+  wetUnit: null,            // wet-day counting threshold in mm (from wiki box / OM setting)
+  precipModel: "v2",        // 'v2' convective-corrected (default) | 'v1' original doc
 };
 
 function defaultGlobals() {
@@ -682,6 +689,14 @@ function parseWeatherBox(body, lat) {
   const monthly = emptyMonthly();
   const found = new Set();
 
+  // wet-day counting threshold, e.g. "0.01 in" / "0.1 mm" / "1.0 mm"
+  let wetUnit = null;
+  const unitRaw = p["unit precipitation days"] ?? p["unit rain days"];
+  if (unitRaw != null) {
+    const v = parseNum(unitRaw);
+    if (v != null) wetUnit = /in\b|inch/i.test(unitRaw) ? Math.round(v * 25.4 * 100) / 100 : v;
+  }
+
   MONTH_KEYS.forEach((mk, i) => {
     // temperatures
     let hi = get(mk, "high c"); if (hi == null) { const f = get(mk, "high f"); hi = f == null ? null : F2C(f); }
@@ -704,7 +719,8 @@ function parseWeatherBox(body, lat) {
     let pd = get(mk, "precipitation days");
     if (pd == null) {
       const rd = get(mk, "rain days"), sd = get(mk, "snow days");
-      if (rd != null || sd != null) pd = (rd ?? 0) + (sd ?? 0);
+      // rain + snow days can overlap (mixed-precip days) — cap at calendar days
+      if (rd != null || sd != null) pd = Math.min((rd ?? 0) + (sd ?? 0), Math.ceil(DAYS_IN_MONTH[i]));
     }
 
     // sunshine → percent of possible
@@ -729,18 +745,21 @@ function parseWeatherBox(body, lat) {
     if (sunPct != null) { monthly.sun[i] = Math.round(sunPct * 10) / 10; found.add("sun"); }
   });
 
-  return found.size ? { monthly, found } : null;
+  return found.size ? { monthly, found, wetUnit } : null;
 }
 
 /* full Wikipedia pipeline: search → try top results in order → weather box (inline or transcluded) */
 async function loadFromWikipedia(query) {
   const titles = await wikiSearchTitles(query);
   if (!titles.length) throw new Error(`No Wikipedia results for "${query}".`);
-  for (const title of titles) {
+  // dedicated climate articles often hold the full table (e.g. "Climate of Singapore")
+  const tryTitles = [...titles];
+  if (!/^climate of/i.test(titles[0])) tryTitles.push("Climate of " + titles[0]);
+  for (const title of tryTitles) {
     try { return await extractFromArticle(title); }
     catch (e) { /* try next candidate */ }
   }
-  throw new Error(`No climate table (Weather box) found in: ${titles.join(", ")}.`);
+  throw new Error(`No climate table (Weather box) found in: ${tryTitles.join(", ")}.`);
 }
 
 async function extractFromArticle(title) {
@@ -748,33 +767,47 @@ async function extractFromArticle(title) {
   if (!wikitext) throw new Error(`Could not load the article "${title}".`);
   const lat = coords?.lat ?? null;
 
-  // candidates in the article itself
-  let candidates = findTemplates(wikitext, /weather ?box/i);
-  let parsed = null, usedName = null;
-
+  // Parse EVERY weather box we can find — inline and transcluded template pages —
+  // then merge field-wise. Some articles (e.g. Moscow) carry partial extremes-only
+  // boxes inline while the full table lives in a {{City weatherbox}} template.
+  const candidates = findTemplates(wikitext, /weather ?box/i);
+  const parsedList = [];
   for (const c of candidates) {
     const r = parseWeatherBox(c.body, lat);
-    if (r && r.found.has("mdmax")) { parsed = r; usedName = c.name; break; }
+    if (r) parsedList.push({ ...r, name: c.name });
   }
-  // transcluded weather box template pages (e.g. {{San Francisco weatherbox}})
-  if (!parsed) {
+  const coverage = (r) => REQUIRED.filter((k) => r.found.has(k)).length;
+  const bestInline = parsedList.length ? Math.max(...parsedList.map(coverage)) : 0;
+  if (bestInline < REQUIRED.length) {
     for (const c of candidates) {
-      if (/^(weather box)$/i.test(c.name)) continue;
+      if (/^weather box$/i.test(c.name)) continue;
       try {
         const tplText = await wikiWikitext("Template:" + c.name);
         if (!tplText) continue;
-        const inner = findTemplates(tplText, /weather ?box/i);
-        for (const t of inner) {
+        for (const t of findTemplates(tplText, /weather ?box/i)) {
           const r = parseWeatherBox(t.body, lat);
-          if (r && r.found.has("mdmax")) { parsed = r; usedName = c.name; break; }
+          if (r) parsedList.push({ ...r, name: c.name });
         }
       } catch (e) { /* try next */ }
-      if (parsed) break;
     }
   }
-  if (!parsed) throw new Error(`No climate table (Weather box) found in "${title}".`);
+  if (!parsedList.some((r) => r.found.has("mdmax"))) throw new Error(`No climate table (Weather box) found in "${title}".`);
 
-  return { title, coords, parsed, usedName };
+  parsedList.sort((a, b) => coverage(b) - coverage(a));
+  const monthly = emptyMonthly();
+  const found = new Set();
+  for (const f of FIELDS) {
+    for (const r of parsedList) {
+      for (let m = 0; m < 12; m++) {
+        if (monthly[f.key][m] == null && r.monthly[f.key][m] != null) monthly[f.key][m] = r.monthly[f.key][m];
+      }
+      if (r.found.has(f.key)) found.add(f.key);
+    }
+  }
+  const wetUnit = parsedList.map((r) => r.wetUnit).find((v) => v != null) ?? null;
+  const usedName = parsedList[0].name + (parsedList.length > 1 ? ` (+${parsedList.length - 1} merged)` : "");
+
+  return { title, coords, parsed: { monthly, found, wetUnit }, usedName };
 }
 
 /* ================= Open-Meteo ================= */
@@ -880,24 +913,44 @@ function computeSeason(monthly, months) {
     r.cloudsAmountDev = clamp(15 + popstd(clouds), 15, 30);
   } else { r.cloudsAmount = r.cloudsChance = r.cloudsAmountDev = null; }
 
-  // 6. precipitation chance
+  // 6–9. precipitation — v2 (default): convective-corrected; v1: original doc formulas
+  const v2 = state.precipModel !== "v1";
   const pdays = pick("pdays");
-  r.precipChance = pdays.length === 3 ? Math.min(100, avg(pdays) * 6) : null;
-
-  // 7–8. precipitation amount from daily intensity
   const intens = months
     .map((i) => [monthly.precip[i], monthly.pdays[i]])
     .filter(([x, y]) => x != null && y != null)
     .map(([x, y]) => y > 0 ? x / y : 0);
+
+  // Convectivity: warm season + high sunshine despite rain = short afternoon
+  // thunderstorms (Charleston/Miami/Darwin build-up), NOT long frontal/monsoon rain
+  // (Seoul jangma z≈35%, London z≈30% stay at 0). Range 0..1.
+  let conv = 0;
+  if (v2 && r.tempDay != null && r.tempNight != null && clouds.length === 3) {
+    const tMean = (r.tempDay + r.tempNight) / 2;
+    const zMean = 100 - avg(clouds); // seasonal sunshine %
+    conv = clamp((tMean - 15) / 10, 0, 1) * clamp((zMean - 40) / 30, 0, 1);
+  }
+  r.convectivity = conv;
+
+  if (pdays.length === 3) {
+    // v2: wet-day-threshold-aware factor — the doc derived 6.5 from SF (days counted
+    // at ≥0.01 in) and 5.5 from Tampere (≥0.1 mm); using the declared unit restores
+    // both prefab anchors. Convectivity discounts up to 50% (brief storms ≠ long rain).
+    const baseFactor = !v2 ? 6 : state.wetUnit == null ? 6 : state.wetUnit < 0.2 ? 5.5 : 6.5;
+    r.precipChance = Math.min(100, avg(pdays) * baseFactor * (1 - 0.5 * conv));
+  } else r.precipChance = null;
+
   if (intens.length === 3) {
     const meanIntensity = avg(intens);
-    r.precipAmount = Math.min(100, meanIntensity * 6.25);
+    // v2: soft knee above 11 mm/day — a few torrential events skew the mean upward
+    const effIntens = v2 ? intens.map((v) => v <= 11 ? v : 11 + (v - 11) / 2) : intens;
+    r.precipAmount = Math.min(100, avg(effIntens) * 6.25);
     r.precipAmountDev = clamp(r.precipAmount * 0.25, 10, 30);
-    // 9. turbulence
+    // turbulence: convective regimes cycle weather faster (short storm cells)
     if (r.tempDay != null && r.tempNight != null) {
       const dMean = (r.tempDay + r.tempNight) / 2;
       const tf = clamp((dMean + 5) / 15, 0.2, 1.0);
-      r.turbulence = Math.min(0.8, Math.max(0.1, meanIntensity / 25 * tf));
+      r.turbulence = Math.min(0.8, Math.max(0.1, meanIntensity / 25 * tf * (1 + 0.5 * conv)));
     } else r.turbulence = null;
   } else { r.precipAmount = r.precipAmountDev = r.turbulence = null; }
 
@@ -937,7 +990,8 @@ function renderTable() {
   for (const f of FIELDS) {
     const src = state.fieldSource[f.key];
     const srcTag = src === "wiki" ? " · Wiki" : src === "openmeteo" ? " · Open-Meteo" : src === "manual" ? " · Manual" : "";
-    html += `<tr><th>${f.label}<small>${f.sub}${srcTag}</small></th>`;
+    const sub = f.key === "pdays" && state.wetUnit != null ? `days ≥ ${state.wetUnit} mm` : f.sub;
+    html += `<tr><th>${f.label}<small>${sub}${srcTag}</small></th>`;
     for (let m = 0; m < 12; m++) {
       const v = state.monthly[f.key][m];
       const req = REQUIRED.includes(f.key) && v == null;
@@ -1320,6 +1374,7 @@ async function runWikipedia(query) {
     const { title, coords, parsed, usedName } = await loadFromWikipedia(query);
     state.monthly = parsed.monthly;
     state.omDaily = null;
+    state.wetUnit = parsed.wetUnit;
     state.fieldSource = {};
     for (const f of FIELDS) if (parsed.found.has(f.key)) state.fieldSource[f.key] = "wiki";
     setPlace(title, coords?.lat ?? null, coords?.lon ?? null,
@@ -1365,10 +1420,12 @@ async function runOpenMeteoByCoords(lat, lon, name, fillOnly = false) {
         }
         if (filled && !state.fieldSource[f.key]) state.fieldSource[f.key] = "openmeteo";
       }
+      if (state.wetUnit == null && state.monthly.pdays.some((v) => v != null)) state.wetUnit = th;
       $("#placeTags").innerHTML += ` <span class="tag om">Open-Meteo fill</span>`;
       toast("Filled missing values from Open-Meteo reanalysis.");
     } else {
       state.monthly = monthly;
+      state.wetUnit = th;
       state.fieldSource = {};
       for (const f of FIELDS) state.fieldSource[f.key] = "openmeteo";
       setPlace(name ?? `${lat.toFixed(2)}, ${lon.toFixed(2)}`, lat, lon,
@@ -1393,6 +1450,7 @@ function persist() {
       monthly: state.monthly, fieldSource: state.fieldSource,
       place: state.place, hemisphere: state.hemisphere,
       globals: state.globals, gDirty: [...state.gDirty],
+      wetUnit: state.wetUnit, precipModel: state.precipModel,
     }));
   } catch {}
 }
@@ -1406,6 +1464,9 @@ function restore() {
     setPlace(d.place.name, d.place.lat, d.place.lon, `<span class="tag manual">Restored from last session</span>`);
     if (d.globals) state.globals = { ...defaultGlobals(), ...d.globals };
     state.gDirty = new Set(d.gDirty ?? []);
+    state.wetUnit = d.wetUnit ?? null;
+    state.precipModel = d.precipModel ?? "v2";
+    $("#precipModel").value = state.precipModel;
     setHemisphere(state.hemisphere, false);
     refreshAll();
   } catch {}
@@ -1432,11 +1493,18 @@ $("#btnFillMissing").addEventListener("click", () => {
 });
 $("#wetThreshold").addEventListener("change", () => {
   if (state.omDaily) {
-    const monthly = aggregateOpenMeteo(state.omDaily, parseFloat($("#wetThreshold").value));
+    const th = parseFloat($("#wetThreshold").value);
+    const monthly = aggregateOpenMeteo(state.omDaily, th);
     state.monthly.pdays = monthly.pdays;
+    state.wetUnit = th;
     refreshAll();
     toast("Re-aggregated with the new wet-day threshold.");
   }
+});
+$("#precipModel").addEventListener("change", () => {
+  state.precipModel = $("#precipModel").value;
+  renderResults();
+  persist();
 });
 $("#btnClearData").addEventListener("click", () => {
   state.monthly = emptyMonthly();
@@ -1449,6 +1517,7 @@ $("#btnExport").addEventListener("click", () => {
   const payload = {
     app: "CS2 Climate Calculator",
     place: state.place, hemisphere: state.hemisphere,
+    precipModel: state.precipModel, wetDayThresholdMm: state.wetUnit,
     globals: {
       ...state.globals,
       defaultWeatherPrefab: "keep game default",
