@@ -1,0 +1,25 @@
+{
+  "name": "cs2-climate-calculator",
+  "productName": "CS2 Climate Calculator",
+  "version": "1.0.0",
+  "description": "Cities: Skylines II climate settings from real-world data",
+  "main": "main.js",
+  "author": "Bynarical",
+  "license": "MIT",
+  "scripts": {
+    "start": "electron .",
+    "build": "electron-builder --win portable"
+  },
+  "build": {
+    "appId": "com.bynarical.cs2climate",
+    "productName": "CS2 Climate Calculator",
+    "files": ["main.js", "index.html", "icon.ico"],
+    "win": {
+      "target": ["portable"],
+      "icon": "icon.ico"
+    },
+    "portable": {
+      "artifactName": "CS2-Climate-Calculator.exe"
+    }
+  }
+}

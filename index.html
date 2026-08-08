@@ -1,0 +1,1474 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CS2 Climate Calculator</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🌦️</text></svg>">
+<style>
+  :root {
+    --bg: #0d0d0d;
+    --surface: #1a1a19;
+    --card: rgba(255,255,255,0.035);
+    --card-hover: rgba(255,255,255,0.06);
+    --border: rgba(255,255,255,0.09);
+    --border-strong: rgba(255,255,255,0.16);
+    --text-1: #ffffff;
+    --text-2: #c3c2b7;
+    --text-3: #898781;
+    --grid: #2c2c2a;
+    --axis: #383835;
+    --accent: #3987e5;
+    --accent-2: #9085e9;
+    --day: #d95926;
+    --night: #3987e5;
+    --rain: #3987e5;
+    --sun: #c98500;
+    --good: #0ca30c;
+    --warn: #fab219;
+    --crit: #d03b3b;
+    --radius: 14px;
+    color-scheme: dark;
+  }
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    background: var(--bg);
+    color: var(--text-1);
+    font-family: "Segoe UI Variable Text", "Segoe UI", system-ui, -apple-system, sans-serif;
+    font-size: 14px;
+    line-height: 1.5;
+    overflow-x: hidden;
+  }
+  body::before {
+    content: "";
+    position: fixed; inset: 0;
+    background:
+      radial-gradient(900px 420px at 15% -8%, rgba(57,135,229,0.14), transparent 60%),
+      radial-gradient(800px 400px at 90% -10%, rgba(144,133,233,0.10), transparent 60%);
+    pointer-events: none;
+    z-index: 0;
+  }
+  ::selection { background: rgba(57,135,229,0.4); }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.12); border-radius: 6px; border: 2px solid var(--bg); }
+  ::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,0.2); }
+  ::-webkit-scrollbar-track { background: transparent; }
+
+  /* ---- titlebar ---- */
+  .titlebar {
+    position: sticky; top: 0; z-index: 50;
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 18px;
+    background: rgba(13,13,13,0.72);
+    backdrop-filter: blur(18px) saturate(1.4);
+    border-bottom: 1px solid var(--border);
+  }
+  .traffic { display: flex; gap: 7px; margin-right: 6px; }
+  .traffic span { width: 11px; height: 11px; border-radius: 50%; opacity: .9; }
+  .traffic .r { background: #ff5f57; } .traffic .y { background: #febc2e; } .traffic .g { background: #28c840; }
+  .app-mark {
+    width: 26px; height: 26px; border-radius: 8px;
+    background: linear-gradient(135deg, var(--accent), var(--accent-2));
+    display: grid; place-items: center; font-size: 14px;
+    box-shadow: 0 2px 10px rgba(57,135,229,0.4);
+  }
+  .app-name { font-weight: 600; letter-spacing: .2px; }
+  .app-name small { color: var(--text-3); font-weight: 400; margin-left: 8px; }
+  .titlebar .spacer { flex: 1; }
+  .badge-src {
+    font-size: 11.5px; color: var(--text-2);
+    border: 1px solid var(--border); border-radius: 99px;
+    padding: 3px 10px; display: none; align-items: center; gap: 6px;
+  }
+  .badge-src .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--good); }
+
+  .shell { position: relative; z-index: 1; max-width: 1440px; margin: 0 auto; padding: 26px 26px 60px; }
+
+  /* ---- hero / search ---- */
+  .hero { text-align: center; padding: 26px 0 6px; }
+  .hero h1 {
+    font-size: 30px; font-weight: 700; letter-spacing: -.4px;
+    background: linear-gradient(92deg, #fff 30%, #a9c8f2 70%, var(--accent-2));
+    -webkit-background-clip: text; background-clip: text; color: transparent;
+  }
+  .hero p { color: var(--text-3); margin-top: 6px; font-size: 13.5px; }
+
+  .search-wrap { max-width: 720px; margin: 22px auto 0; }
+  .search-bar {
+    display: flex; gap: 8px; align-items: center;
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 16px; padding: 8px 8px 8px 18px;
+    transition: border-color .2s, box-shadow .2s;
+    backdrop-filter: blur(10px);
+  }
+  .search-bar:focus-within { border-color: rgba(57,135,229,0.55); box-shadow: 0 0 0 4px rgba(57,135,229,0.14); }
+  .search-bar .icon { color: var(--text-3); flex: none; }
+  .search-bar input {
+    flex: 1; background: none; border: none; outline: none;
+    color: var(--text-1); font-size: 15px; font-family: inherit; min-width: 0;
+  }
+  .search-bar input::placeholder { color: var(--text-3); }
+  .btn {
+    border: 1px solid var(--border); background: var(--card);
+    color: var(--text-1); font-family: inherit; font-size: 13.5px; font-weight: 600;
+    padding: 9px 16px; border-radius: 11px; cursor: pointer;
+    transition: background .15s, border-color .15s, transform .1s;
+    display: inline-flex; align-items: center; gap: 7px; white-space: nowrap;
+  }
+  .btn:hover { background: var(--card-hover); border-color: var(--border-strong); }
+  .btn:active { transform: scale(.97); }
+  .btn.primary {
+    background: linear-gradient(135deg, var(--accent), #2a6fc4);
+    border-color: transparent;
+    box-shadow: 0 3px 14px rgba(57,135,229,0.35);
+  }
+  .btn.primary:hover { filter: brightness(1.1); }
+  .btn.ghost { background: transparent; border-color: transparent; color: var(--text-2); }
+  .btn.ghost:hover { background: var(--card); color: var(--text-1); }
+  .btn:disabled { opacity: .5; cursor: wait; }
+  .btn.small { padding: 5px 11px; font-size: 12px; border-radius: 8px; }
+
+  .presets { display: flex; gap: 8px; justify-content: center; margin-top: 14px; flex-wrap: wrap; }
+  .chip {
+    font-size: 12.5px; color: var(--text-2);
+    background: transparent; border: 1px solid var(--border);
+    border-radius: 99px; padding: 5px 13px; cursor: pointer; font-family: inherit;
+    transition: all .15s;
+  }
+  .chip:hover { color: var(--text-1); border-color: rgba(57,135,229,0.6); background: rgba(57,135,229,0.1); }
+
+  .coord-row {
+    display: flex; gap: 8px; justify-content: center; align-items: center;
+    margin-top: 12px; color: var(--text-3); font-size: 12.5px; flex-wrap: wrap;
+  }
+  .coord-row input {
+    width: 96px; background: var(--card); border: 1px solid var(--border);
+    border-radius: 8px; padding: 5px 9px; color: var(--text-1); font-family: inherit; font-size: 12.5px;
+  }
+  .coord-row input:focus { outline: none; border-color: rgba(57,135,229,0.55); }
+
+  /* ---- status strip ---- */
+  .status-strip {
+    display: none; margin: 26px 0 0;
+    align-items: center; gap: 14px; flex-wrap: wrap;
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 12px 18px;
+  }
+  .status-strip.visible { display: flex; }
+  .place-name { font-size: 16px; font-weight: 700; }
+  .place-meta { color: var(--text-3); font-size: 12.5px; display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  .tag {
+    font-size: 11px; font-weight: 600; letter-spacing: .3px;
+    padding: 2px 9px; border-radius: 6px;
+    background: rgba(57,135,229,0.15); color: #8db9ee; border: 1px solid rgba(57,135,229,0.3);
+  }
+  .tag.om { background: rgba(25,175,122,0.13); color: #5fd0a5; border-color: rgba(25,175,122,0.3); }
+  .tag.manual { background: rgba(201,133,0,0.13); color: #e0aa4b; border-color: rgba(201,133,0,0.35); }
+  .seg { display: inline-flex; border: 1px solid var(--border); border-radius: 9px; overflow: hidden; }
+  .seg button {
+    background: transparent; border: none; color: var(--text-3);
+    font-family: inherit; font-size: 12px; font-weight: 600; padding: 5px 13px; cursor: pointer;
+  }
+  .seg button.on { background: rgba(57,135,229,0.2); color: #a9c8f2; }
+  .status-strip .spacer { flex: 1; }
+  .warn-note { color: var(--warn); font-size: 12.5px; display: none; align-items: center; gap: 6px; }
+
+  /* ---- layout ---- */
+  .main-grid { display: grid; grid-template-columns: minmax(0, 1fr); gap: 22px; margin-top: 22px; }
+
+  .panel {
+    background: var(--card); border: 1px solid var(--border);
+    border-radius: var(--radius); overflow: hidden;
+    backdrop-filter: blur(8px);
+  }
+  .panel-head {
+    display: flex; align-items: center; gap: 10px;
+    padding: 14px 18px; border-bottom: 1px solid var(--border);
+  }
+  .panel-head h2 { font-size: 14.5px; font-weight: 700; letter-spacing: -.1px; }
+  .panel-head .sub { color: var(--text-3); font-size: 12px; font-weight: 400; }
+  .panel-head .spacer { flex: 1; }
+  .panel-body { padding: 16px 18px; }
+
+  /* ---- monthly table ---- */
+  .table-scroll { overflow-x: auto; }
+  table.monthly { border-collapse: collapse; width: 100%; min-width: 980px; font-variant-numeric: tabular-nums; }
+  table.monthly th, table.monthly td { padding: 4px 4px; text-align: center; font-size: 12.5px; }
+  table.monthly thead th { color: var(--text-3); font-weight: 600; border-bottom: 1px solid var(--axis); padding-bottom: 8px; }
+  table.monthly tbody th {
+    text-align: left; color: var(--text-2); font-weight: 600; white-space: nowrap;
+    padding-right: 12px; min-width: 150px;
+  }
+  table.monthly tbody th small { color: var(--text-3); font-weight: 400; display: block; font-size: 10.5px; margin-top: -2px; }
+  table.monthly input {
+    width: 58px; background: rgba(255,255,255,0.04); border: 1px solid transparent;
+    border-radius: 7px; padding: 4px 5px; color: var(--text-1);
+    font-family: inherit; font-size: 12.5px; text-align: center;
+    transition: border-color .15s, background .15s;
+    font-variant-numeric: tabular-nums;
+  }
+  table.monthly input:hover { border-color: var(--border); }
+  table.monthly input:focus { outline: none; border-color: rgba(57,135,229,0.6); background: rgba(57,135,229,0.08); }
+  table.monthly input.missing { background: rgba(250,178,25,0.07); border-color: rgba(250,178,25,0.25); }
+  table.monthly tbody tr:hover td input:not(:focus) { background: rgba(255,255,255,0.07); }
+
+  /* ---- season cards ---- */
+  .season-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 14px; }
+  .season-card {
+    background: linear-gradient(180deg, rgba(255,255,255,0.05), rgba(255,255,255,0.02));
+    border: 1px solid var(--border); border-radius: var(--radius);
+    padding: 16px 18px 14px; position: relative; overflow: hidden;
+    transition: transform .18s, border-color .18s, box-shadow .18s;
+  }
+  .season-card:hover { transform: translateY(-2px); border-color: var(--border-strong); box-shadow: 0 8px 28px rgba(0,0,0,0.35); }
+  .season-card::before {
+    content: ""; position: absolute; top: 0; left: 0; right: 0; height: 3px;
+    background: var(--season-color, var(--accent));
+  }
+  .season-card h3 { font-size: 15px; font-weight: 700; display: flex; align-items: baseline; gap: 8px; }
+  .season-card h3 .months { margin-left: auto; color: var(--text-3); font-size: 11px; font-weight: 500; }
+  .kv-list { margin-top: 12px; display: flex; flex-direction: column; }
+  .kv {
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 4.5px 0; border-bottom: 1px solid rgba(255,255,255,0.05);
+    font-size: 12.8px;
+  }
+  .kv:last-child { border-bottom: none; }
+  .kv .k { color: var(--text-2); }
+  .kv .k small { color: var(--text-3); }
+  .kv .v { font-weight: 650; font-variant-numeric: tabular-nums; letter-spacing: .2px; }
+  .kv .v.na { color: var(--text-3); font-weight: 400; }
+  .kv.group-start { margin-top: 7px; border-top: 1px dashed rgba(255,255,255,0.1); padding-top: 8px; }
+  .season-card .card-actions { margin-top: 12px; display: flex; justify-content: flex-end; }
+
+  /* ---- global settings ---- */
+  .global-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; margin-bottom: 16px; }
+  .g-item { background: rgba(255,255,255,0.03); border: 1px solid var(--border); border-radius: 10px; padding: 9px 12px; }
+  .g-item label { display: block; font-size: 10.5px; color: var(--text-3); font-weight: 600; letter-spacing: .3px; text-transform: uppercase; }
+  .g-item.auto label::after { content: " · auto"; color: #5fd0a5; text-transform: none; }
+  .g-item input {
+    width: 100%; background: none; border: none; outline: none;
+    color: var(--text-1); font-family: inherit; font-size: 13.5px; font-weight: 600;
+    font-variant-numeric: tabular-nums; padding: 2px 0 0;
+    border-bottom: 1px solid transparent; transition: border-color .15s;
+  }
+  .g-item input:focus { border-bottom-color: rgba(57,135,229,0.6); }
+  .g-item .static { font-size: 12px; color: var(--text-2); padding-top: 3px; }
+  .g-item .row { display: flex; align-items: center; gap: 6px; }
+  .g-item .dice { background: none; border: none; cursor: pointer; font-size: 14px; padding: 0; opacity: .7; }
+  .g-item .dice:hover { opacity: 1; }
+
+  /* ---- charts ---- */
+  .charts-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 14px; }
+  .chart-box { background: rgba(255,255,255,0.02); border: 1px solid var(--border); border-radius: 12px; padding: 14px 14px 8px; }
+  .chart-box h4 { font-size: 12.5px; font-weight: 600; color: var(--text-2); display: flex; gap: 12px; align-items: center; }
+  .chart-box h4 .unit { color: var(--text-3); font-weight: 400; font-size: 11px; }
+  .legend { display: flex; gap: 12px; margin-left: auto; }
+  .legend span { display: inline-flex; align-items: center; gap: 5px; font-size: 11px; color: var(--text-2); font-weight: 500; }
+  .legend i { width: 9px; height: 9px; border-radius: 3px; display: inline-block; }
+  .chart-svg-wrap { margin-top: 6px; }
+  .chart-svg-wrap svg { display: block; width: 100%; height: auto; }
+
+  #tooltip {
+    position: fixed; z-index: 100; pointer-events: none;
+    background: rgba(26,26,25,0.95); border: 1px solid var(--border-strong);
+    border-radius: 10px; padding: 8px 12px; font-size: 12px;
+    box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+    display: none; backdrop-filter: blur(8px);
+    font-variant-numeric: tabular-nums;
+  }
+  #tooltip .t-title { color: var(--text-3); font-size: 11px; margin-bottom: 3px; }
+  #tooltip .t-row { display: flex; align-items: center; gap: 6px; }
+  #tooltip .t-row i { width: 8px; height: 8px; border-radius: 2px; }
+  #tooltip .t-row b { margin-left: auto; padding-left: 14px; }
+
+  /* ---- formulas help ---- */
+  details.help { margin-top: 22px; }
+  details.help summary {
+    cursor: pointer; color: var(--text-3); font-size: 12.5px;
+    list-style: none; display: inline-flex; align-items: center; gap: 6px;
+    padding: 6px 12px; border-radius: 8px; transition: color .15s;
+  }
+  details.help summary:hover { color: var(--text-1); }
+  details.help summary::-webkit-details-marker { display: none; }
+  details.help .formulas {
+    margin-top: 10px; background: var(--card); border: 1px solid var(--border);
+    border-radius: var(--radius); padding: 18px 22px; font-size: 12.8px; color: var(--text-2);
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 6px 30px;
+  }
+  details.help .formulas div { padding: 4px 0; }
+  details.help .formulas b { color: var(--text-1); }
+  details.help .formulas code {
+    font-family: Consolas, "Cascadia Code", monospace; font-size: 11.8px;
+    color: #8db9ee; background: rgba(57,135,229,0.08); padding: 1px 6px; border-radius: 5px;
+  }
+
+  /* ---- toast ---- */
+  #toasts { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); z-index: 200; display: flex; flex-direction: column; gap: 8px; align-items: center; }
+  .toast {
+    background: rgba(26,26,25,0.95); border: 1px solid var(--border-strong);
+    color: var(--text-1); font-size: 13px; padding: 10px 18px; border-radius: 12px;
+    box-shadow: 0 10px 30px rgba(0,0,0,0.5); backdrop-filter: blur(10px);
+    animation: toast-in .25s cubic-bezier(.2,.9,.3,1.2);
+    display: flex; align-items: center; gap: 9px; max-width: 90vw;
+  }
+  .toast.err { border-color: rgba(208,59,59,0.5); }
+  .toast.err::before { content: "⚠"; color: var(--crit); }
+  .toast.ok::before { content: "✓"; color: var(--good); font-weight: 700; }
+  @keyframes toast-in { from { opacity: 0; transform: translateY(12px) scale(.95); } }
+
+  /* ---- loading ---- */
+  .spinner {
+    width: 15px; height: 15px; border-radius: 50%;
+    border: 2px solid rgba(255,255,255,0.25); border-top-color: #fff;
+    animation: spin .7s linear infinite; display: inline-block;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .empty-hint { color: var(--text-3); text-align: center; padding: 34px 0; font-size: 13px; }
+
+  @media (max-width: 720px) {
+    .shell { padding: 16px 14px 50px; }
+    .hero h1 { font-size: 23px; }
+  }
+</style>
+</head>
+<body>
+
+<div class="titlebar">
+  <div class="traffic"><span class="r"></span><span class="y"></span><span class="g"></span></div>
+  <div class="app-mark">🌦️</div>
+  <div class="app-name">CS2 Climate Calculator <small>Cities: Skylines II climate settings from real-world data</small></div>
+  <div class="spacer"></div>
+  <div class="badge-src" id="srcBadge"><span class="dot"></span><span id="srcBadgeText"></span></div>
+</div>
+
+<div class="shell">
+  <section class="hero">
+    <h1>Real-world climate, as CS2 settings</h1>
+    <p>Pulls Wikipedia climate tables or Open-Meteo reanalysis data (1991–2020) and computes climatologically accurate Cities: Skylines II climate values.</p>
+    <div class="search-wrap">
+      <div class="search-bar">
+        <svg class="icon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <input id="cityInput" type="text" placeholder="Search a city (e.g. Seoul, San Francisco, Tampere)" autocomplete="off">
+        <button class="btn ghost" id="btnOpenMeteo" title="Skip Wikipedia and load directly from Open-Meteo reanalysis">Open-Meteo</button>
+        <button class="btn primary" id="btnSearch">Load</button>
+      </div>
+      <div class="presets">
+        <button class="chip" data-city="San Francisco">San Francisco</button>
+        <button class="chip" data-city="Tampere">Tampere</button>
+        <button class="chip" data-city="Seoul">Seoul</button>
+        <button class="chip" data-city="Tokyo">Tokyo</button>
+        <button class="chip" data-city="London">London</button>
+        <button class="chip" data-city="Reykjavík">Reykjavík</button>
+        <button class="chip" data-city="Singapore">Singapore</button>
+        <button class="chip" data-city="Sydney">Sydney</button>
+      </div>
+      <div class="coord-row">
+        <span>or coordinates:</span>
+        <input id="latInput" type="number" step="any" placeholder="Latitude">
+        <input id="lonInput" type="number" step="any" placeholder="Longitude">
+        <button class="btn small" id="btnCoord">Load from Open-Meteo</button>
+        <span style="opacity:.7">|</span>
+        <span>Wet day:</span>
+        <select id="wetThreshold" style="background:var(--card);border:1px solid var(--border);border-radius:8px;color:var(--text-1);padding:4px 8px;font-family:inherit;font-size:12.5px;">
+          <option value="0.1" selected>≥ 0.1 mm</option>
+          <option value="0.2">≥ 0.2 mm</option>
+          <option value="1">≥ 1.0 mm</option>
+        </select>
+      </div>
+    </div>
+  </section>
+
+  <div class="status-strip" id="statusStrip">
+    <div>
+      <div class="place-name" id="placeName">—</div>
+      <div class="place-meta">
+        <span id="placeCoords"></span>
+        <span id="placeTags"></span>
+      </div>
+    </div>
+    <div class="spacer"></div>
+    <span class="warn-note" id="warnNote">⚠ <span id="warnNoteText"></span></span>
+    <button class="btn small" id="btnFillMissing" style="display:none">Fill missing from Open-Meteo</button>
+    <div class="seg" title="Hemisphere (season mapping)">
+      <button id="hemN" class="on">Northern</button>
+      <button id="hemS">Southern</button>
+    </div>
+  </div>
+
+  <div class="main-grid">
+    <section class="panel" id="tablePanel" style="display:none">
+      <div class="panel-head">
+        <h2>Monthly Climate Data</h2>
+        <span class="sub">Click a cell to edit · recalculates instantly</span>
+        <div class="spacer"></div>
+        <button class="btn small" id="btnClearData">Clear</button>
+      </div>
+      <div class="panel-body table-scroll" id="tableBody"></div>
+    </section>
+
+    <section class="panel" id="resultPanel" style="display:none">
+      <div class="panel-head">
+        <h2>CS2 Climate Settings</h2>
+        <span class="sub">Global + per season — every field in the CS2 climate section</span>
+        <div class="spacer"></div>
+        <button class="btn small" id="btnCopyAll">Copy all</button>
+        <button class="btn small" id="btnExport">Export JSON</button>
+      </div>
+      <div class="panel-body">
+        <div class="global-strip" id="globalStrip"></div>
+        <div class="season-grid" id="seasonGrid"></div>
+      </div>
+    </section>
+
+    <section class="panel" id="chartPanel" style="display:none">
+      <div class="panel-head">
+        <h2>Climate Charts</h2>
+        <span class="sub">Monthly (Jan–Dec)</span>
+      </div>
+      <div class="panel-body">
+        <div class="charts-grid">
+          <div class="chart-box">
+            <h4>Temperature <span class="unit">°C</span>
+              <span class="legend">
+                <span><i style="background:var(--day)"></i>Day high</span>
+                <span><i style="background:var(--night)"></i>Night low</span>
+              </span>
+            </h4>
+            <div class="chart-svg-wrap" id="chartTemp"></div>
+          </div>
+          <div class="chart-box">
+            <h4>Precipitation <span class="unit">mm / month</span></h4>
+            <div class="chart-svg-wrap" id="chartPrecip"></div>
+          </div>
+          <div class="chart-box">
+            <h4>Sunshine <span class="unit">% of possible daylight</span></h4>
+            <div class="chart-svg-wrap" id="chartSun"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <div class="empty-hint" id="emptyHint">Search for a city above — its data and the computed CS2 values will appear here.</div>
+
+  <details class="help">
+    <summary>▸ Formulas (from “Formula for Climate Settings”)</summary>
+    <div class="formulas">
+      <div><b>Season mapping</b> — Northern: Winter=DJF, Spring=MAM, Summer=JJA, Autumn=SON / Southern: flipped</div>
+      <div><b>Temperature Night/Day</b> — <code>seasonal mean of monthly daily min / max</code></div>
+      <div><b>Temperature Deviation</b> — <code>max(2.5, σ(monthly)×1.5)</code>; if mean-extreme rows exist, also <code>|daily − extreme| / 1.5</code>, take the larger</div>
+      <div><b>Clouds Amount</b> — <code>100 − sunshine %</code></div>
+      <div><b>Clouds Chance</b> — <code>min(100, Clouds Amount × 1.5)</code></div>
+      <div><b>Clouds Amount Deviation</b> — <code>clamp(15 + σ(monthly cloud %), 15, 30)</code></div>
+      <div><b>Precipitation Chance</b> — <code>min(100, avg precip days × 6)</code></div>
+      <div><b>Precipitation Amount</b> — <code>min(100, avg(monthly mm / precip days) × 6.25)</code></div>
+      <div><b>Precip. Amount Deviation</b> — <code>clamp(Amount × 0.25, 10, 30)</code></div>
+      <div><b>Turbulence</b> — <code>min(0.8, max(0.1, intensity/25 × temp_factor))</code>, temp_factor = <code>clamp((daily mean + 5)/15, 0.2, 1.0)</code></div>
+      <div><b>Start Time</b> — season start as a fraction of the year (Northern: Spring = Mar 1 ≈ 0.162 … / Southern: flipped)</div>
+      <div><b>Max Sun Elevation</b> — <code>clamp(90 − |lat| + 23.44, 45, 90)</code>; clamp start defaults to 15° below that</div>
+      <div><b>Aurora Chance / Strength</b> — latitude-based estimate: 0 below ~50°, scaling to ~68°; suppressed during bright high-latitude summers</div>
+      <div><b>Freezing Temperature</b> — default 0 °C (the rain ↔ snow threshold); Default Weather Prefab / Weathers are game-side selections, keep defaults</div>
+      <div style="grid-column:1/-1;color:var(--text-3);margin-top:6px">Validated against the official CS2 San Francisco prefab (within ±10%). Tampere’s prefab is hand-tuned for aurora gameplay and snow visuals, so real-climate values intentionally differ — this app computes the real-climate-accurate values.</div>
+    </div>
+  </details>
+</div>
+
+<div id="tooltip"></div>
+<div id="toasts"></div>
+
+<script>
+"use strict";
+/* ============================================================
+   CS2 Climate Calculator
+   Formulas: "Formula for Climate Settings" (validated vs CS2
+   San Francisco / Tampere prefabs)
+   Data: Wikipedia {{Weather box}} → fallback Open-Meteo ERA5
+   ============================================================ */
+
+const MONTH_KEYS = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+const DAYS_IN_MONTH = [31,28.25,31,30,31,30,31,31,30,31,30,31];
+const MID_DOY = [15,45,74,105,135,166,196,227,258,288,319,349];
+
+const FIELDS = [
+  { key: "mdmax",   label: "Daily max temp",    sub: "Mean daily maximum · °C" },
+  { key: "mdmin",   label: "Daily min temp",    sub: "Mean daily minimum · °C" },
+  { key: "meanmax", label: "Mean monthly max",  sub: "Avg. monthly extreme high · °C (optional)" },
+  { key: "meanmin", label: "Mean monthly min",  sub: "Avg. monthly extreme low · °C (optional)" },
+  { key: "precip",  label: "Precipitation",     sub: "mm" },
+  { key: "pdays",   label: "Precipitation days", sub: "days" },
+  { key: "sun",     label: "Sunshine",          sub: "% of possible" },
+];
+const REQUIRED = ["mdmax","mdmin","precip","pdays","sun"];
+
+const state = {
+  monthly: emptyMonthly(),
+  fieldSource: {},          // fieldKey -> 'wiki' | 'openmeteo' | 'manual'
+  place: null,              // { name, lat, lon }
+  hemisphere: "N",
+  omDaily: null,            // cached Open-Meteo daily raw (for threshold re-agg)
+  globals: defaultGlobals(),
+  gDirty: new Set(),        // globals the user edited by hand (not auto-recomputed)
+};
+
+function defaultGlobals() {
+  return {
+    name: "", lat: null, lon: null,
+    maxSun: null, clampStart: null,
+    freezing: 0,
+    seed: Math.floor(Math.random() * 2147483647),
+  };
+}
+/* Max Sun Elevation: solstice solar noon altitude, clamped to CS2's 45–90° range */
+function maxSunElevation(lat) {
+  return lat == null ? null : Math.round(clamp(90 - Math.abs(lat) + 23.44, 45, 90) * 10) / 10;
+}
+function clampStartDefault(lat) {
+  const m = maxSunElevation(lat);
+  return m == null ? null : Math.max(0, Math.round((m - 15) * 10) / 10);
+}
+/* Aurora estimate from latitude: none below ~50°, scales to ~68°; bright summer nights suppress it */
+function auroraFor(season, lat) {
+  if (lat == null) return { chance: 0, strength: 0 };
+  const a = Math.abs(lat);
+  const base = clamp((a - 50) / 18, 0, 1);
+  const darkness = { Winter: 1.0, Autumn: 0.8, Spring: 0.6, Summer: a > 55 ? 0.1 : 0.3 }[season];
+  return {
+    chance: Math.round(base * darkness * 100),
+    strength: Math.round(Math.min(0.8, base * 0.8) * 100) / 100,
+  };
+}
+/* season start day-of-year (1st of month) per hemisphere */
+const SEASON_START = {
+  N: { Spring: [59, "Mar 1"], Summer: [151, "Jun 1"], Autumn: [243, "Sep 1"], Winter: [334, "Dec 1"] },
+  S: { Spring: [243, "Sep 1"], Summer: [334, "Dec 1"], Autumn: [59, "Mar 1"], Winter: [151, "Jun 1"] },
+};
+
+function emptyMonthly() {
+  const o = {};
+  for (const f of FIELDS) o[f.key] = new Array(12).fill(null);
+  return o;
+}
+
+/* ---------------- utils ---------------- */
+const $ = (s) => document.querySelector(s);
+const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, v));
+const avg = (a) => a.length ? a.reduce((s, v) => s + v, 0) / a.length : null;
+function popstd(a) {
+  if (a.length < 2) return 0;
+  const m = avg(a);
+  return Math.sqrt(a.reduce((s, v) => s + (v - m) * (v - m), 0) / a.length);
+}
+const fmt1 = (v) => v == null || !isFinite(v) ? "—" : (Math.round(v * 10) / 10).toFixed(1);
+const fmt2 = (v) => v == null || !isFinite(v) ? "—" : (Math.round(v * 100) / 100).toFixed(2);
+
+function toast(msg, type = "ok", ms = 3400) {
+  const el = document.createElement("div");
+  el.className = "toast " + type;
+  el.textContent = msg;
+  $("#toasts").appendChild(el);
+  setTimeout(() => { el.style.opacity = "0"; el.style.transition = "opacity .3s"; setTimeout(() => el.remove(), 320); }, ms);
+}
+
+/* daylight hours at latitude for day-of-year (good enough for % of possible sunshine) */
+function daylightHours(lat, doy) {
+  const decl = 23.44 * Math.sin(2 * Math.PI * (284 + doy) / 365) * Math.PI / 180;
+  const phi = lat * Math.PI / 180;
+  const cosH = clamp(-Math.tan(phi) * Math.tan(decl), -1, 1);
+  return 24 / Math.PI * Math.acos(cosH);
+}
+
+/* ================= Wikipedia ================= */
+const WIKI_API = "https://en.wikipedia.org/w/api.php";
+
+async function wikiGet(params) {
+  const url = WIKI_API + "?" + new URLSearchParams({ format: "json", formatversion: "2", origin: "*", ...params });
+  const r = await fetch(url);
+  if (!r.ok) throw new Error("Wikipedia API HTTP " + r.status);
+  return r.json();
+}
+
+async function wikiSearchTitles(q, limit = 4) {
+  const d = await wikiGet({ action: "query", list: "search", srsearch: q, srlimit: String(limit) });
+  return (d.query?.search ?? []).map((h) => h.title);
+}
+
+async function wikiWikitext(title) {
+  const d = await wikiGet({ action: "parse", page: title, prop: "wikitext", redirects: "1" });
+  return d.parse?.wikitext ?? null;
+}
+
+async function wikiCoords(title) {
+  const d = await wikiGet({ action: "query", prop: "coordinates", titles: title, redirects: "1" });
+  const c = d.query?.pages?.[0]?.coordinates?.[0];
+  return c ? { lat: c.lat, lon: c.lon } : null;
+}
+
+/* extract a balanced {{...}} starting at index `start` (which points at '{{') */
+function balancedTemplate(text, start) {
+  let depth = 0, i = start;
+  while (i < text.length) {
+    if (text.startsWith("{{", i)) { depth++; i += 2; continue; }
+    if (text.startsWith("}}", i)) { depth--; i += 2; if (depth === 0) return text.slice(start, i); continue; }
+    i++;
+  }
+  return null;
+}
+
+/* find all templates whose name matches nameRe; returns [{name, body}] */
+function findTemplates(text, nameRe) {
+  const out = [];
+  const re = /\{\{\s*([^{}|]+?)\s*(?=[|}])/g;
+  let m;
+  while ((m = re.exec(text))) {
+    const name = m[1].replace(/\s+/g, " ").trim();
+    if (nameRe.test(name)) {
+      const body = balancedTemplate(text, m.index);
+      if (body) out.push({ name, body });
+    }
+  }
+  return out;
+}
+
+/* split template inner content on top-level pipes */
+function splitParams(inner) {
+  const parts = [];
+  let depthT = 0, depthL = 0, cur = "";
+  for (let i = 0; i < inner.length; i++) {
+    if (inner.startsWith("{{", i)) { depthT++; cur += "{{"; i++; continue; }
+    if (inner.startsWith("}}", i)) { depthT--; cur += "}}"; i++; continue; }
+    if (inner.startsWith("[[", i)) { depthL++; cur += "[["; i++; continue; }
+    if (inner.startsWith("]]", i)) { depthL--; cur += "]]"; i++; continue; }
+    const ch = inner[i];
+    if (ch === "|" && depthT === 0 && depthL === 0) { parts.push(cur); cur = ""; continue; }
+    cur += ch;
+  }
+  parts.push(cur);
+  return parts;
+}
+
+function parseNum(v) {
+  if (v == null) return null;
+  let s = String(v)
+    .replace(/<!--[\s\S]*?-->/g, "")
+    .replace(/<ref[\s\S]*?(\/>|<\/ref>)/gi, "")
+    .replace(/&minus;|−|–/g, "-")
+    .replace(/,/g, "")
+    .trim();
+  if (/^(trace|t)$/i.test(s)) return 0;
+  const m = s.match(/-?\d+(\.\d+)?/);
+  return m ? parseFloat(m[0]) : null;
+}
+
+const F2C = (f) => (f - 32) * 5 / 9;
+const IN2MM = (i) => i * 25.4;
+
+/* parse a {{Weather box}} body into our monthly structure */
+function parseWeatherBox(body, lat) {
+  const inner = body.slice(2, -2);
+  const parts = splitParams(inner);
+  const p = {};
+  for (let i = 1; i < parts.length; i++) {
+    const eq = parts[i].indexOf("=");
+    if (eq < 0) continue;
+    const k = parts[i].slice(0, eq).trim().toLowerCase().replace(/\s+/g, " ");
+    p[k] = parts[i].slice(eq + 1).trim();
+  }
+
+  const get = (mk, suffix) => parseNum(p[(mk + " " + suffix).toLowerCase()]);
+  const monthly = emptyMonthly();
+  const found = new Set();
+
+  MONTH_KEYS.forEach((mk, i) => {
+    // temperatures
+    let hi = get(mk, "high c"); if (hi == null) { const f = get(mk, "high f"); hi = f == null ? null : F2C(f); }
+    let lo = get(mk, "low c");  if (lo == null) { const f = get(mk, "low f");  lo = f == null ? null : F2C(f); }
+    let mmax = get(mk, "avg record high c"); if (mmax == null) { const f = get(mk, "avg record high f"); mmax = f == null ? null : F2C(f); }
+    let mmin = get(mk, "avg record low c");  if (mmin == null) { const f = get(mk, "avg record low f");  mmin = f == null ? null : F2C(f); }
+
+    // precipitation amount (mm)
+    let pr = get(mk, "precipitation mm");
+    if (pr == null) { const inch = get(mk, "precipitation inch"); pr = inch == null ? null : IN2MM(inch); }
+    if (pr == null) {
+      let rain = get(mk, "rain mm");
+      if (rain == null) { const ri = get(mk, "rain inch"); rain = ri == null ? null : IN2MM(ri); }
+      let snowCm = get(mk, "snow cm");
+      if (snowCm == null) { const si = get(mk, "snow inch"); snowCm = si == null ? null : si * 2.54; }
+      if (rain != null || snowCm != null) pr = (rain ?? 0) + (snowCm ?? 0) * 1.0; // 1 cm snow ≈ 1 mm water eq.
+    }
+
+    // precipitation days
+    let pd = get(mk, "precipitation days");
+    if (pd == null) {
+      const rd = get(mk, "rain days"), sd = get(mk, "snow days");
+      if (rd != null || sd != null) pd = (rd ?? 0) + (sd ?? 0);
+    }
+
+    // sunshine → percent of possible
+    let sunPct = get(mk, "percentsun");
+    if (sunPct == null && lat != null) {
+      const possible = daylightHours(lat, MID_DOY[i]) * DAYS_IN_MONTH[i];
+      const sunH = get(mk, "sun");
+      if (sunH != null && possible > 0) sunPct = clamp(sunH / possible * 100, 0, 100);
+      else {
+        const dSun = get(mk, "d sun");
+        if (dSun != null) sunPct = clamp(dSun / daylightHours(lat, MID_DOY[i]) * 100, 0, 100);
+      }
+    }
+
+    const r1 = (v) => Math.round(v * 10) / 10;
+    if (hi != null) { monthly.mdmax[i] = r1(hi); found.add("mdmax"); }
+    if (lo != null) { monthly.mdmin[i] = r1(lo); found.add("mdmin"); }
+    if (mmax != null) { monthly.meanmax[i] = r1(mmax); found.add("meanmax"); }
+    if (mmin != null) { monthly.meanmin[i] = r1(mmin); found.add("meanmin"); }
+    if (pr != null) { monthly.precip[i] = Math.round(pr * 10) / 10; found.add("precip"); }
+    if (pd != null) { monthly.pdays[i] = pd; found.add("pdays"); }
+    if (sunPct != null) { monthly.sun[i] = Math.round(sunPct * 10) / 10; found.add("sun"); }
+  });
+
+  return found.size ? { monthly, found } : null;
+}
+
+/* full Wikipedia pipeline: search → try top results in order → weather box (inline or transcluded) */
+async function loadFromWikipedia(query) {
+  const titles = await wikiSearchTitles(query);
+  if (!titles.length) throw new Error(`No Wikipedia results for "${query}".`);
+  for (const title of titles) {
+    try { return await extractFromArticle(title); }
+    catch (e) { /* try next candidate */ }
+  }
+  throw new Error(`No climate table (Weather box) found in: ${titles.join(", ")}.`);
+}
+
+async function extractFromArticle(title) {
+  const [wikitext, coords] = await Promise.all([wikiWikitext(title), wikiCoords(title).catch(() => null)]);
+  if (!wikitext) throw new Error(`Could not load the article "${title}".`);
+  const lat = coords?.lat ?? null;
+
+  // candidates in the article itself
+  let candidates = findTemplates(wikitext, /weather ?box/i);
+  let parsed = null, usedName = null;
+
+  for (const c of candidates) {
+    const r = parseWeatherBox(c.body, lat);
+    if (r && r.found.has("mdmax")) { parsed = r; usedName = c.name; break; }
+  }
+  // transcluded weather box template pages (e.g. {{San Francisco weatherbox}})
+  if (!parsed) {
+    for (const c of candidates) {
+      if (/^(weather box)$/i.test(c.name)) continue;
+      try {
+        const tplText = await wikiWikitext("Template:" + c.name);
+        if (!tplText) continue;
+        const inner = findTemplates(tplText, /weather ?box/i);
+        for (const t of inner) {
+          const r = parseWeatherBox(t.body, lat);
+          if (r && r.found.has("mdmax")) { parsed = r; usedName = c.name; break; }
+        }
+      } catch (e) { /* try next */ }
+      if (parsed) break;
+    }
+  }
+  if (!parsed) throw new Error(`No climate table (Weather box) found in "${title}".`);
+
+  return { title, coords, parsed, usedName };
+}
+
+/* ================= Open-Meteo ================= */
+async function geocode(q) {
+  const url = "https://geocoding-api.open-meteo.com/v1/search?" + new URLSearchParams({ name: q, count: "1", language: "en", format: "json" });
+  const d = await (await fetch(url)).json();
+  return d.results?.[0] ?? null;
+}
+
+async function fetchOpenMeteoDaily(lat, lon) {
+  const url = "https://archive-api.open-meteo.com/v1/archive?" + new URLSearchParams({
+    latitude: lat, longitude: lon,
+    start_date: "1991-01-01", end_date: "2020-12-31",
+    daily: "temperature_2m_max,temperature_2m_min,precipitation_sum,sunshine_duration,daylight_duration",
+    timezone: "auto",
+  });
+  const r = await fetch(url);
+  const d = await r.json();
+  if (!r.ok || d.error) throw new Error("Open-Meteo: " + (d.reason || ("HTTP " + r.status)));
+  return d.daily;
+}
+
+/* aggregate 30y of daily data → monthly climatology */
+function aggregateOpenMeteo(daily, wetThresholdMm) {
+  const n = daily.time.length;
+  const sumTmax = Array(12).fill(0), sumTmin = Array(12).fill(0), cntT = Array(12).fill(0);
+  const sumSun = Array(12).fill(0), sumDayl = Array(12).fill(0);
+  // per (year,month) accumulators
+  const ymPrecip = new Map(), ymWet = new Map(), ymMax = new Map(), ymMin = new Map();
+
+  for (let i = 0; i < n; i++) {
+    const mo = +daily.time[i].slice(5, 7) - 1;
+    const ym = daily.time[i].slice(0, 7);
+    const tmax = daily.temperature_2m_max[i], tmin = daily.temperature_2m_min[i];
+    const pr = daily.precipitation_sum[i], sun = daily.sunshine_duration[i], dl = daily.daylight_duration[i];
+    if (tmax != null) { sumTmax[mo] += tmax; cntT[mo]++; if (!ymMax.has(ym) || tmax > ymMax.get(ym)) ymMax.set(ym, tmax); }
+    if (tmin != null) { sumTmin[mo] += tmin; if (!ymMin.has(ym) || tmin < ymMin.get(ym)) ymMin.set(ym, tmin); }
+    if (pr != null) {
+      ymPrecip.set(ym, (ymPrecip.get(ym) ?? 0) + pr);
+      if (pr >= wetThresholdMm) ymWet.set(ym, (ymWet.get(ym) ?? 0) + 1);
+      else if (!ymWet.has(ym)) ymWet.set(ym, 0);
+    }
+    if (sun != null && dl != null) { sumSun[mo] += sun; sumDayl[mo] += dl; }
+  }
+
+  const monthly = emptyMonthly();
+  const perMonth = (map, reduce) => {
+    const acc = Array.from({ length: 12 }, () => []);
+    for (const [ym, v] of map) acc[+ym.slice(5, 7) - 1].push(v);
+    return acc.map((arr) => arr.length ? reduce(arr) : null);
+  };
+
+  for (let m = 0; m < 12; m++) {
+    monthly.mdmax[m] = cntT[m] ? Math.round(sumTmax[m] / cntT[m] * 10) / 10 : null;
+    monthly.mdmin[m] = cntT[m] ? Math.round(sumTmin[m] / cntT[m] * 10) / 10 : null;
+    monthly.sun[m] = sumDayl[m] > 0 ? Math.round(sumSun[m] / sumDayl[m] * 1000) / 10 : null;
+  }
+  perMonth(ymPrecip, avg).forEach((v, m) => monthly.precip[m] = v == null ? null : Math.round(v * 10) / 10);
+  perMonth(ymWet, avg).forEach((v, m) => monthly.pdays[m] = v == null ? null : Math.round(v * 10) / 10);
+  perMonth(ymMax, avg).forEach((v, m) => monthly.meanmax[m] = v == null ? null : Math.round(v * 10) / 10);
+  perMonth(ymMin, avg).forEach((v, m) => monthly.meanmin[m] = v == null ? null : Math.round(v * 10) / 10);
+  return monthly;
+}
+
+/* ================= CS2 formulas ================= */
+function seasonMonths(hemisphere) {
+  const N = { Winter: [11, 0, 1], Spring: [2, 3, 4], Summer: [5, 6, 7], Autumn: [8, 9, 10] };
+  if (hemisphere === "N") return N;
+  return { Winter: N.Summer, Spring: N.Autumn, Summer: N.Winter, Autumn: N.Spring };
+}
+
+function computeSeason(monthly, months) {
+  const pick = (key) => months.map((i) => monthly[key][i]).filter((v) => v != null && isFinite(v));
+  const r = {};
+
+  // 1. temperature averages
+  const mins = pick("mdmin"), maxs = pick("mdmax");
+  r.tempNight = mins.length === 3 ? avg(mins) : null;
+  r.tempDay = maxs.length === 3 ? avg(maxs) : null;
+
+  // 2. temperature deviation: max(2.5, popstd×1.5), vs |MD−MeanExtreme|/1.5 if available
+  const dev = (dailyKey, extremeKey) => {
+    const daily = pick(dailyKey);
+    if (daily.length !== 3) return null;
+    let d = popstd(daily) * 1.5;
+    const pairs = months
+      .map((i) => [monthly[dailyKey][i], monthly[extremeKey][i]])
+      .filter(([a, b]) => a != null && b != null);
+    if (pairs.length === 3) {
+      const alt = avg(pairs.map(([a, b]) => Math.abs(a - b))) / 1.5;
+      d = Math.max(d, alt);
+    }
+    return Math.max(2.5, d);
+  };
+  r.tempDevNight = dev("mdmin", "meanmin");
+  r.tempDevDay = dev("mdmax", "meanmax");
+
+  // 3–5. clouds from sunshine %
+  const clouds = months.map((i) => monthly.sun[i]).filter((v) => v != null).map((z) => 100 - z);
+  if (clouds.length === 3) {
+    r.cloudsAmount = avg(clouds);
+    r.cloudsChance = Math.min(100, r.cloudsAmount * 1.5);
+    r.cloudsAmountDev = clamp(15 + popstd(clouds), 15, 30);
+  } else { r.cloudsAmount = r.cloudsChance = r.cloudsAmountDev = null; }
+
+  // 6. precipitation chance
+  const pdays = pick("pdays");
+  r.precipChance = pdays.length === 3 ? Math.min(100, avg(pdays) * 6) : null;
+
+  // 7–8. precipitation amount from daily intensity
+  const intens = months
+    .map((i) => [monthly.precip[i], monthly.pdays[i]])
+    .filter(([x, y]) => x != null && y != null)
+    .map(([x, y]) => y > 0 ? x / y : 0);
+  if (intens.length === 3) {
+    const meanIntensity = avg(intens);
+    r.precipAmount = Math.min(100, meanIntensity * 6.25);
+    r.precipAmountDev = clamp(r.precipAmount * 0.25, 10, 30);
+    // 9. turbulence
+    if (r.tempDay != null && r.tempNight != null) {
+      const dMean = (r.tempDay + r.tempNight) / 2;
+      const tf = clamp((dMean + 5) / 15, 0.2, 1.0);
+      r.turbulence = Math.min(0.8, Math.max(0.1, meanIntensity / 25 * tf));
+    } else r.turbulence = null;
+  } else { r.precipAmount = r.precipAmountDev = r.turbulence = null; }
+
+  return r;
+}
+
+function computeAll() {
+  const map = seasonMonths(state.hemisphere);
+  const out = {};
+  for (const [season, months] of Object.entries(map)) {
+    const r = { months, ...computeSeason(state.monthly, months) };
+    const [doy, lbl] = SEASON_START[state.hemisphere][season];
+    r.startTime = Math.round(doy / 365 * 1000) / 1000;
+    r.startTimeText = r.startTime.toFixed(3) + "  ·  " + lbl;
+    r.seasonPrefab = "Season " + season;
+    const au = auroraFor(season, state.globals.lat);
+    r.auroraChance = au.chance;
+    r.auroraStrength = au.strength;
+    out[season] = r;
+  }
+  return out;
+}
+
+/* ================= rendering ================= */
+const SEASON_META = {
+  Winter: { color: "#3987e5", icon: "❄️" },
+  Spring: { color: "#199e70", icon: "🌸" },
+  Summer: { color: "#d95926", icon: "☀️" },
+  Autumn: { color: "#c98500", icon: "🍂" },
+};
+
+function renderTable() {
+  const host = $("#tableBody");
+  let html = '<table class="monthly"><thead><tr><th></th>';
+  for (const m of MONTH_KEYS) html += `<th>${m}</th>`;
+  html += "</tr></thead><tbody>";
+  for (const f of FIELDS) {
+    const src = state.fieldSource[f.key];
+    const srcTag = src === "wiki" ? " · Wiki" : src === "openmeteo" ? " · Open-Meteo" : src === "manual" ? " · Manual" : "";
+    html += `<tr><th>${f.label}<small>${f.sub}${srcTag}</small></th>`;
+    for (let m = 0; m < 12; m++) {
+      const v = state.monthly[f.key][m];
+      const req = REQUIRED.includes(f.key) && v == null;
+      html += `<td><input type="text" inputmode="decimal" data-field="${f.key}" data-month="${m}" class="${req ? "missing" : ""}" value="${v == null ? "" : v}"></td>`;
+    }
+    html += "</tr>";
+  }
+  html += "</tbody></table>";
+  host.innerHTML = html;
+  host.querySelectorAll("input").forEach((inp) => {
+    inp.addEventListener("input", () => {
+      const f = inp.dataset.field, m = +inp.dataset.month;
+      const v = inp.value.trim() === "" ? null : parseFloat(inp.value.replace(",", "."));
+      state.monthly[f][m] = v != null && isFinite(v) ? v : null;
+      state.fieldSource[f] = "manual";
+      inp.classList.toggle("missing", REQUIRED.includes(f) && state.monthly[f][m] == null);
+      renderResults();
+      renderCharts();
+      persist();
+    });
+  });
+}
+
+const KV_ROWS = [
+  ["seasonPrefab", "Season Prefab", "", (v) => v ?? "—", false],
+  ["startTimeText", "Start Time", "", (v) => v ?? "—", false],
+  ["tempNight", "Temperature Night", "°C", fmt1, true],
+  ["tempDay", "Temperature Day", "°C", fmt1, false],
+  ["tempDevNight", "Temp. Deviation Night", "°C", fmt1, false],
+  ["tempDevDay", "Temp. Deviation Day", "°C", fmt1, false],
+  ["cloudsChance", "Clouds Chance", "%", fmt1, true],
+  ["cloudsAmount", "Clouds Amount", "%", fmt1, false],
+  ["cloudsAmountDev", "Clouds Amount Deviation", "%", fmt1, false],
+  ["precipChance", "Precipitation Chance", "%", fmt1, true],
+  ["precipAmount", "Precipitation Amount", "%", fmt1, false],
+  ["precipAmountDev", "Precip. Amount Deviation", "%", fmt1, false],
+  ["turbulence", "Turbulence", "", fmt2, true],
+  ["auroraChance", "Aurora Chance", "%", fmt1, true],
+  ["auroraStrength", "Aurora Strength", "", fmt2, false],
+];
+
+function renderResults() {
+  const results = computeAll();
+  const grid = $("#seasonGrid");
+  grid.innerHTML = "";
+  let anyMissing = false;
+
+  for (const [season, r] of Object.entries(results)) {
+    const meta = SEASON_META[season];
+    const monthsLabel = r.months.map((i) => MONTH_KEYS[i]).join(" · ");
+    let rows = "";
+    for (const [key, label, unit, fmt, groupStart] of KV_ROWS) {
+      const v = r[key];
+      if (v == null) anyMissing = true;
+      rows += `<div class="kv${groupStart ? " group-start" : ""}"><span class="k">${label}${unit ? ` <small>${unit}</small>` : ""}</span><span class="v${v == null ? " na" : ""}">${fmt(v)}</span></div>`;
+    }
+    const card = document.createElement("div");
+    card.className = "season-card";
+    card.style.setProperty("--season-color", meta.color);
+    card.innerHTML = `
+      <h3>${meta.icon} ${season}<span class="months">${monthsLabel}</span></h3>
+      <div class="kv-list">${rows}</div>
+      <div class="card-actions"><button class="btn small" data-copy-season="${season}">Copy</button></div>`;
+    grid.appendChild(card);
+  }
+
+  grid.querySelectorAll("[data-copy-season]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const s = btn.dataset.copySeason;
+      copyText(seasonText(s, results[s]));
+      toast(`Copied ${s} values.`);
+    });
+  });
+
+  const warn = $("#warnNote");
+  if (anyMissing) {
+    $("#warnNoteText").textContent = "Some values missing — fill the amber cells or use Open-Meteo";
+    warn.style.display = "inline-flex";
+  } else warn.style.display = "none";
+
+  const missingAny = REQUIRED.some((k) => state.monthly[k].some((v) => v == null));
+  $("#btnFillMissing").style.display = missingAny && state.place ? "" : "none";
+}
+
+/* ---- global settings card ---- */
+const G_FIELDS = [
+  ["name", "Name", "text"],
+  ["lat", "Latitude °", "number"],
+  ["lon", "Longitude °", "number"],
+  ["maxSun", "Max Sun Elevation °", "number"],
+  ["clampStart", "Sun Elev. Clamp Start °", "number"],
+  ["freezing", "Freezing Temperature °C", "number"],
+  ["seed", "Random Seed", "seed"],
+];
+const DEFAULT_WEATHERS = "Clear · Few · Scattered · Broken · Overcast · Stormy";
+
+function renderGlobals() {
+  const host = $("#globalStrip");
+  const g = state.globals;
+  let html = "";
+  for (const [key, label, type] of G_FIELDS) {
+    const auto = (key === "maxSun" || key === "clampStart") && !state.gDirty.has(key);
+    const val = g[key] == null ? "" : g[key];
+    if (type === "seed") {
+      html += `<div class="g-item"><label>${label}</label><div class="row"><input data-g="seed" type="text" inputmode="numeric" value="${val}"><button class="dice" id="diceSeed" title="Randomize">🎲</button></div></div>`;
+    } else {
+      html += `<div class="g-item${auto ? " auto" : ""}"><label>${label}</label><input data-g="${key}" type="text" ${type === "number" ? 'inputmode="decimal"' : ""} value="${val}"></div>`;
+    }
+  }
+  html += `<div class="g-item"><label>Default Weather Prefab</label><div class="static">Keep game default</div></div>`;
+  html += `<div class="g-item"><label>Default Weathers</label><div class="static">${DEFAULT_WEATHERS}</div></div>`;
+  host.innerHTML = html;
+
+  host.querySelectorAll("input[data-g]").forEach((inp) => {
+    inp.addEventListener("input", () => {
+      const k = inp.dataset.g;
+      if (k === "name") state.globals.name = inp.value;
+      else if (k === "seed") { const v = parseInt(inp.value, 10); state.globals.seed = isFinite(v) ? v : null; }
+      else {
+        const v = inp.value.trim() === "" ? null : parseFloat(inp.value);
+        state.globals[k] = v != null && isFinite(v) ? v : null;
+      }
+      state.gDirty.add(k);
+      if (k === "lat" || k === "lon") {
+        if (!state.gDirty.has("maxSun")) {
+          state.globals.maxSun = maxSunElevation(state.globals.lat);
+          const el = host.querySelector('input[data-g="maxSun"]');
+          if (el) el.value = state.globals.maxSun ?? "";
+        }
+        if (!state.gDirty.has("clampStart")) {
+          state.globals.clampStart = clampStartDefault(state.globals.lat);
+          const el = host.querySelector('input[data-g="clampStart"]');
+          if (el) el.value = state.globals.clampStart ?? "";
+        }
+        if (k === "lat" && state.globals.lat != null) setHemisphere(state.globals.lat < 0 ? "S" : "N", false);
+      }
+      renderResults();
+      persist();
+    });
+  });
+  const dice = host.querySelector("#diceSeed");
+  if (dice) dice.addEventListener("click", () => {
+    state.globals.seed = Math.floor(Math.random() * 2147483647);
+    host.querySelector('input[data-g="seed"]').value = state.globals.seed;
+    persist();
+  });
+}
+
+function seasonText(season, r) {
+  const lines = [`[${season}]`];
+  for (const [key, label, unit, fmt] of KV_ROWS) lines.push(`${label}: ${fmt(r[key])}${r[key] != null && unit ? " " + unit : ""}`);
+  return lines.join("\n");
+}
+
+function globalText() {
+  const g = state.globals;
+  return [
+    "[Global]",
+    `Name: ${g.name || "—"}`,
+    `Latitude: ${g.lat ?? "—"}`,
+    `Longitude: ${g.lon ?? "—"}`,
+    `Max Sun Elevation: ${fmt1(g.maxSun)} °`,
+    `Sun Elevation Clamp Start: ${fmt1(g.clampStart)} °`,
+    `Freezing Temperature: ${fmt1(g.freezing)} °C`,
+    `Random Seed: ${g.seed ?? "—"}`,
+    "Default Weather Prefab: keep game default",
+    `Default Weathers: ${DEFAULT_WEATHERS.replaceAll(" · ", ", ")}`,
+  ].join("\n");
+}
+
+function allText() {
+  const results = computeAll();
+  const head = `CS2 Climate Settings — ${state.globals.name || state.place?.name || "?"} (${state.hemisphere === "N" ? "Northern" : "Southern"} Hemisphere)\n\n`;
+  return head + globalText() + "\n\n" + Object.entries(results).map(([s, r]) => seasonText(s, r)).join("\n\n");
+}
+
+async function copyText(t) {
+  try { await navigator.clipboard.writeText(t); }
+  catch {
+    const ta = document.createElement("textarea");
+    ta.value = t; document.body.appendChild(ta); ta.select();
+    document.execCommand("copy"); ta.remove();
+  }
+}
+
+/* ================= charts (hand-rolled SVG) ================= */
+const CHART = { h: 190, mt: 14, mr: 12, mb: 26, ml: 40 };
+
+function niceTicks(lo, hi, n = 4) {
+  if (lo === hi) { lo -= 1; hi += 1; }
+  const span = hi - lo;
+  const step0 = span / n;
+  const mag = Math.pow(10, Math.floor(Math.log10(step0)));
+  const step = [1, 2, 2.5, 5, 10].map((s) => s * mag).find((s) => span / s <= n + 0.5) || 10 * mag;
+  const start = Math.ceil(lo / step) * step;
+  const ticks = [];
+  for (let v = start; v <= hi + 1e-9; v += step) ticks.push(Math.round(v * 1000) / 1000);
+  return ticks;
+}
+
+function svgEl(tag, attrs) {
+  const el = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
+  return el;
+}
+
+const tooltip = $("#tooltip");
+function showTooltip(html, x, y) {
+  tooltip.innerHTML = html;
+  tooltip.style.display = "block";
+  const r = tooltip.getBoundingClientRect();
+  let left = x + 14, top = y - r.height - 10;
+  if (left + r.width > innerWidth - 8) left = x - r.width - 14;
+  if (top < 8) top = y + 16;
+  tooltip.style.left = left + "px";
+  tooltip.style.top = top + "px";
+}
+function hideTooltip() { tooltip.style.display = "none"; }
+
+function chartFrame(host) {
+  host.innerHTML = "";
+  const w = Math.max(280, host.clientWidth || 320);
+  const svg = svgEl("svg", { viewBox: `0 0 ${w} ${CHART.h}`, width: w, height: CHART.h });
+  host.appendChild(svg);
+  return { svg, w, plotW: w - CHART.ml - CHART.mr, plotH: CHART.h - CHART.mt - CHART.mb };
+}
+
+function drawAxes(svg, w, ticks, yOf) {
+  for (const t of ticks) {
+    const y = yOf(t);
+    svg.appendChild(svgEl("line", { x1: CHART.ml, x2: w - CHART.mr, y1: y, y2: y, stroke: "#2c2c2a", "stroke-width": 1 }));
+    const lbl = svgEl("text", { x: CHART.ml - 7, y: y + 3.5, "text-anchor": "end", "font-size": 10, fill: "#898781" });
+    lbl.textContent = t;
+    svg.appendChild(lbl);
+  }
+  MONTH_KEYS.forEach((mk, i) => {
+    if (i % 2 !== 0) return;
+    const x = CHART.ml + (i + 0.5) / 12 * (w - CHART.ml - CHART.mr);
+    const lbl = svgEl("text", { x, y: CHART.h - 8, "text-anchor": "middle", "font-size": 10, fill: "#898781" });
+    lbl.textContent = mk;
+    svg.appendChild(lbl);
+  });
+}
+
+function renderTempChart() {
+  const host = $("#chartTemp");
+  const { svg, w, plotH } = chartFrame(host);
+  const day = state.monthly.mdmax, night = state.monthly.mdmin;
+  const vals = [...day, ...night].filter((v) => v != null);
+  if (!vals.length) return;
+  let lo = Math.min(...vals), hi = Math.max(...vals);
+  const pad = Math.max(2, (hi - lo) * 0.12); lo -= pad; hi += pad;
+  const ticks = niceTicks(lo, hi);
+  const yOf = (v) => CHART.mt + (1 - (v - lo) / (hi - lo)) * plotH;
+  const xOf = (i) => CHART.ml + (i + 0.5) / 12 * (w - CHART.ml - CHART.mr);
+  drawAxes(svg, w, ticks, yOf);
+  if (lo < 0 && hi > 0) svg.appendChild(svgEl("line", { x1: CHART.ml, x2: w - CHART.mr, y1: yOf(0), y2: yOf(0), stroke: "#383835", "stroke-width": 1.5, "stroke-dasharray": "4 3" }));
+
+  const series = [
+    { name: "Day high", color: getComputedStyle(document.documentElement).getPropertyValue("--day").trim(), data: day },
+    { name: "Night low", color: getComputedStyle(document.documentElement).getPropertyValue("--night").trim(), data: night },
+  ];
+  const markers = [];
+  for (const s of series) {
+    let d = "", started = false;
+    s.data.forEach((v, i) => {
+      if (v == null) { started = false; return; }
+      d += (started ? " L" : " M") + xOf(i).toFixed(1) + " " + yOf(v).toFixed(1);
+      started = true;
+    });
+    svg.appendChild(svgEl("path", { d, fill: "none", stroke: s.color, "stroke-width": 2, "stroke-linecap": "round", "stroke-linejoin": "round" }));
+    const g = svgEl("g", { opacity: 0 });
+    s.data.forEach((v, i) => {
+      if (v == null) return;
+      g.appendChild(svgEl("circle", { cx: xOf(i), cy: yOf(v), r: 4, fill: s.color, stroke: "#1a1a19", "stroke-width": 2, "data-i": i }));
+    });
+    svg.appendChild(g);
+    markers.push(g);
+  }
+  const cross = svgEl("line", { y1: CHART.mt, y2: CHART.mt + plotH, stroke: "#c3c2b7", "stroke-width": 1, "stroke-dasharray": "3 3", opacity: 0 });
+  svg.appendChild(cross);
+  const overlay = svgEl("rect", { x: CHART.ml, y: 0, width: w - CHART.ml - CHART.mr, height: CHART.h, fill: "transparent" });
+  svg.appendChild(overlay);
+  overlay.addEventListener("mousemove", (e) => {
+    const rect = svg.getBoundingClientRect();
+    const px = (e.clientX - rect.left) * (w / rect.width);
+    const i = clamp(Math.floor((px - CHART.ml) / (w - CHART.ml - CHART.mr) * 12), 0, 11);
+    cross.setAttribute("x1", xOf(i)); cross.setAttribute("x2", xOf(i)); cross.setAttribute("opacity", 1);
+    markers.forEach((g) => { g.setAttribute("opacity", 1); [...g.children].forEach((c) => c.setAttribute("opacity", +c.dataset.i === i ? 1 : 0)); });
+    showTooltip(
+      `<div class="t-title">${MONTH_KEYS[i]}</div>` +
+      series.map((s) => `<div class="t-row"><i style="background:${s.color}"></i>${s.name}<b>${fmt1(s.data[i])} °C</b></div>`).join(""),
+      e.clientX, e.clientY
+    );
+  });
+  overlay.addEventListener("mouseleave", () => { cross.setAttribute("opacity", 0); markers.forEach((g) => g.setAttribute("opacity", 0)); hideTooltip(); });
+}
+
+function renderBarChart(hostSel, values, color, unitLabel, valueFmt) {
+  const host = $(hostSel);
+  const { svg, w, plotH } = chartFrame(host);
+  const vals = values.filter((v) => v != null);
+  if (!vals.length) return;
+  const hi = Math.max(...vals) * 1.12 || 1;
+  const ticks = niceTicks(0, hi);
+  const yOf = (v) => CHART.mt + (1 - v / hi) * plotH;
+  drawAxes(svg, w, ticks, yOf);
+  const slot = (w - CHART.ml - CHART.mr) / 12;
+  const bw = Math.max(6, slot - 2); // 2px surface gap between bars
+  const baseline = yOf(0);
+  values.forEach((v, i) => {
+    if (v == null) return;
+    const x = CHART.ml + i * slot + (slot - bw) / 2;
+    const y = yOf(v);
+    const hgt = Math.max(0, baseline - y);
+    const rr = Math.min(4, hgt); // 4px rounded data-end, anchored to baseline
+    const d = `M${x} ${baseline} L${x} ${y + rr} Q${x} ${y} ${x + rr} ${y} L${x + bw - rr} ${y} Q${x + bw} ${y} ${x + bw} ${y + rr} L${x + bw} ${baseline} Z`;
+    const bar = svgEl("path", { d, fill: color, opacity: 0.85 });
+    bar.style.transition = "opacity .12s";
+    bar.addEventListener("mousemove", (e) => {
+      bar.setAttribute("opacity", 1);
+      showTooltip(`<div class="t-title">${MONTH_KEYS[i]}</div><div class="t-row"><i style="background:${color}"></i>${unitLabel}<b>${valueFmt(v)}</b></div>`, e.clientX, e.clientY);
+    });
+    bar.addEventListener("mouseleave", () => { bar.setAttribute("opacity", 0.85); hideTooltip(); });
+    svg.appendChild(bar);
+  });
+  svg.appendChild(svgEl("line", { x1: CHART.ml, x2: w - CHART.mr, y1: baseline, y2: baseline, stroke: "#383835", "stroke-width": 1 }));
+}
+
+function renderCharts() {
+  const hasAny = FIELDS.some((f) => state.monthly[f.key].some((v) => v != null));
+  $("#chartPanel").style.display = hasAny ? "" : "none";
+  if (!hasAny) return;
+  const cs = getComputedStyle(document.documentElement);
+  renderTempChart();
+  renderBarChart("#chartPrecip", state.monthly.precip, cs.getPropertyValue("--rain").trim(), "Precipitation", (v) => fmt1(v) + " mm");
+  renderBarChart("#chartSun", state.monthly.sun, cs.getPropertyValue("--sun").trim(), "Sunshine", (v) => fmt1(v) + " %");
+}
+
+/* ================= app flow ================= */
+function setPlace(name, lat, lon, tagsHtml) {
+  state.place = { name, lat, lon };
+  state.gDirty.clear();
+  state.globals.name = name;
+  state.globals.lat = lat;
+  state.globals.lon = lon;
+  state.globals.maxSun = maxSunElevation(lat);
+  state.globals.clampStart = clampStartDefault(lat);
+  $("#statusStrip").classList.add("visible");
+  $("#placeName").textContent = name;
+  $("#placeCoords").textContent = lat != null ? `${lat.toFixed(3)}°, ${lon.toFixed(3)}°` : "";
+  $("#placeTags").innerHTML = tagsHtml;
+  if (lat != null) setHemisphere(lat < 0 ? "S" : "N", false);
+  $("#emptyHint").style.display = "none";
+  $("#tablePanel").style.display = "";
+  $("#resultPanel").style.display = "";
+  const badge = $("#srcBadge");
+  badge.style.display = "inline-flex";
+  $("#srcBadgeText").textContent = name;
+}
+
+function setHemisphere(h, rerender = true) {
+  state.hemisphere = h;
+  $("#hemN").classList.toggle("on", h === "N");
+  $("#hemS").classList.toggle("on", h === "S");
+  if (rerender) { renderResults(); persist(); }
+}
+
+function refreshAll() {
+  renderTable();
+  renderGlobals();
+  renderResults();
+  renderCharts();
+  persist();
+}
+
+async function runWikipedia(query) {
+  setBusy(true);
+  try {
+    const { title, coords, parsed, usedName } = await loadFromWikipedia(query);
+    state.monthly = parsed.monthly;
+    state.omDaily = null;
+    state.fieldSource = {};
+    for (const f of FIELDS) if (parsed.found.has(f.key)) state.fieldSource[f.key] = "wiki";
+    setPlace(title, coords?.lat ?? null, coords?.lon ?? null,
+      `<span class="tag">Wikipedia · ${usedName ?? "Weather box"}</span>`);
+    refreshAll();
+    const missing = REQUIRED.filter((k) => state.monthly[k].every((v) => v == null));
+    if (missing.length) {
+      const labels = missing.map((k) => FIELDS.find((f) => f.key === k).label).join(", ");
+      toast(`Not in the Wikipedia climate table: ${labels}. Fill from Open-Meteo or enter manually.`, "err", 6000);
+    } else {
+      toast(`Loaded the climate table for "${title}".`);
+    }
+  } catch (e) {
+    toast(e.message + " → falling back to Open-Meteo.", "err", 4500);
+    await runOpenMeteoByName(query);
+  } finally { setBusy(false); }
+}
+
+async function runOpenMeteoByName(query) {
+  setBusy(true);
+  try {
+    const g = await geocode(query);
+    if (!g) throw new Error(`Location "${query}" not found.`);
+    await runOpenMeteoByCoords(g.latitude, g.longitude, `${g.name}${g.country ? ", " + g.country : ""}`);
+  } catch (e) { toast(e.message, "err", 5000); }
+  finally { setBusy(false); }
+}
+
+async function runOpenMeteoByCoords(lat, lon, name, fillOnly = false) {
+  setBusy(true);
+  try {
+    const daily = await fetchOpenMeteoDaily(lat, lon);
+    state.omDaily = daily;
+    const th = parseFloat($("#wetThreshold").value);
+    const monthly = aggregateOpenMeteo(daily, th);
+    if (fillOnly) {
+      for (const f of FIELDS) {
+        const hasGap = state.monthly[f.key].some((v) => v == null);
+        if (!hasGap) continue;
+        let filled = false;
+        for (let m = 0; m < 12; m++) {
+          if (state.monthly[f.key][m] == null && monthly[f.key][m] != null) { state.monthly[f.key][m] = monthly[f.key][m]; filled = true; }
+        }
+        if (filled && !state.fieldSource[f.key]) state.fieldSource[f.key] = "openmeteo";
+      }
+      $("#placeTags").innerHTML += ` <span class="tag om">Open-Meteo fill</span>`;
+      toast("Filled missing values from Open-Meteo reanalysis.");
+    } else {
+      state.monthly = monthly;
+      state.fieldSource = {};
+      for (const f of FIELDS) state.fieldSource[f.key] = "openmeteo";
+      setPlace(name ?? `${lat.toFixed(2)}, ${lon.toFixed(2)}`, lat, lon,
+        `<span class="tag om">Open-Meteo ERA5 · 1991–2020</span>`);
+      toast("Loaded Open-Meteo reanalysis (30-year climate normals).");
+    }
+    refreshAll();
+  } catch (e) { toast(e.message, "err", 5000); }
+  finally { setBusy(false); }
+}
+
+function setBusy(b) {
+  const btn = $("#btnSearch");
+  btn.disabled = b;
+  btn.innerHTML = b ? '<span class="spinner"></span> Loading' : "Load";
+}
+
+/* ================= persistence ================= */
+function persist() {
+  try {
+    localStorage.setItem("cs2climate", JSON.stringify({
+      monthly: state.monthly, fieldSource: state.fieldSource,
+      place: state.place, hemisphere: state.hemisphere,
+      globals: state.globals, gDirty: [...state.gDirty],
+    }));
+  } catch {}
+}
+function restore() {
+  try {
+    const d = JSON.parse(localStorage.getItem("cs2climate"));
+    if (!d?.place) return;
+    state.monthly = { ...emptyMonthly(), ...d.monthly };
+    state.fieldSource = d.fieldSource ?? {};
+    state.hemisphere = d.hemisphere ?? "N";
+    setPlace(d.place.name, d.place.lat, d.place.lon, `<span class="tag manual">Restored from last session</span>`);
+    if (d.globals) state.globals = { ...defaultGlobals(), ...d.globals };
+    state.gDirty = new Set(d.gDirty ?? []);
+    setHemisphere(state.hemisphere, false);
+    refreshAll();
+  } catch {}
+}
+
+/* ================= events ================= */
+$("#btnSearch").addEventListener("click", () => { const q = $("#cityInput").value.trim(); if (q) runWikipedia(q); });
+$("#cityInput").addEventListener("keydown", (e) => { if (e.key === "Enter") $("#btnSearch").click(); });
+$("#btnOpenMeteo").addEventListener("click", () => { const q = $("#cityInput").value.trim(); if (q) runOpenMeteoByName(q); });
+$("#btnCoord").addEventListener("click", () => {
+  const lat = parseFloat($("#latInput").value), lon = parseFloat($("#lonInput").value);
+  if (!isFinite(lat) || !isFinite(lon)) { toast("Enter latitude and longitude.", "err"); return; }
+  runOpenMeteoByCoords(lat, lon, null);
+});
+document.querySelectorAll(".chip").forEach((c) => c.addEventListener("click", () => {
+  $("#cityInput").value = c.dataset.city;
+  runWikipedia(c.dataset.city);
+}));
+$("#hemN").addEventListener("click", () => setHemisphere("N"));
+$("#hemS").addEventListener("click", () => setHemisphere("S"));
+$("#btnFillMissing").addEventListener("click", () => {
+  if (!state.place || state.place.lat == null) { toast("No coordinates available to fill from.", "err"); return; }
+  runOpenMeteoByCoords(state.place.lat, state.place.lon, state.place.name, true);
+});
+$("#wetThreshold").addEventListener("change", () => {
+  if (state.omDaily) {
+    const monthly = aggregateOpenMeteo(state.omDaily, parseFloat($("#wetThreshold").value));
+    state.monthly.pdays = monthly.pdays;
+    refreshAll();
+    toast("Re-aggregated with the new wet-day threshold.");
+  }
+});
+$("#btnClearData").addEventListener("click", () => {
+  state.monthly = emptyMonthly();
+  state.fieldSource = {};
+  refreshAll();
+});
+$("#btnCopyAll").addEventListener("click", async () => { await copyText(allText()); toast("Copied all four seasons."); });
+$("#btnExport").addEventListener("click", () => {
+  const results = computeAll();
+  const payload = {
+    app: "CS2 Climate Calculator",
+    place: state.place, hemisphere: state.hemisphere,
+    globals: {
+      ...state.globals,
+      defaultWeatherPrefab: "keep game default",
+      defaultWeathers: ["Clear", "Few", "Scattered", "Broken", "Overcast", "Stormy"],
+    },
+    monthly: state.monthly, seasons: results,
+    formulaDoc: "Formula for Climate Settings (validated vs CS2 SF/Tampere prefabs)",
+  };
+  const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `cs2-climate-${(state.place?.name ?? "data").replace(/[^\w-]+/g, "_")}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+
+let resizeTimer;
+addEventListener("resize", () => { clearTimeout(resizeTimer); resizeTimer = setTimeout(renderCharts, 150); });
+
+restore();
+</script>
+</body>
+</html>
