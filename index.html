@@ -243,17 +243,6 @@
   .kv.group-start { margin-top: 7px; border-top: 1px dashed rgba(255,255,255,0.1); padding-top: 8px; }
   .season-card .card-actions { margin-top: 12px; display: flex; justify-content: flex-end; }
 
-  /* simulated-result check */
-  .verify {
-    margin-top: 11px; padding: 9px 11px; border-radius: 9px;
-    background: rgba(57,135,229,0.07); border: 1px solid rgba(57,135,229,0.18);
-    font-size: 11.5px; font-variant-numeric: tabular-nums;
-  }
-  .verify .vhead { color: var(--text-3); font-size: 10.5px; letter-spacing: .4px; text-transform: uppercase; margin-bottom: 4px; }
-  .verify .vrow { display: flex; align-items: baseline; gap: 6px; color: var(--text-2); padding: 1.5px 0; }
-  .verify .vrow span { flex: 1; }
-  .verify .vrow b { color: var(--text-1); font-weight: 650; min-width: 52px; text-align: right; }
-  .verify .vrow i { color: var(--text-3); font-style: normal; }
 
   /* ---- global settings ---- */
   .global-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 10px; margin-bottom: 16px; }
@@ -427,11 +416,6 @@
         <h2>CS2 Climate Settings</h2>
         <span class="sub">Global + per season — every field in the CS2 climate section</span>
         <div class="spacer"></div>
-        <select id="rainBias" title="The engine cannot match real sunshine and real rain frequency at once — choose which one to favour" style="background:var(--card);border:1px solid var(--border);border-radius:8px;color:var(--text-2);padding:4px 8px;font-family:inherit;font-size:12px;">
-          <option value="0.5" selected>Balanced sun / rain</option>
-          <option value="1">Favour rain frequency</option>
-          <option value="0">Favour sunshine</option>
-        </select>
         <button class="btn small" id="btnCopyAll">Copy all</button>
         <button class="btn small" id="btnExport">Export JSON</button>
       </div>
@@ -473,20 +457,24 @@
   <div class="empty-hint" id="emptyHint">Search for a city above — its data and the computed CS2 values will appear here.</div>
 
   <details class="help">
-    <summary>▸ How these values are derived</summary>
+    <summary>▸ Formulas (from “Formula for Climate Settings”)</summary>
     <div class="formulas">
-      <div style="grid-column:1/-1"><b>The values are not fitted with formulas — they are solved.</b> CS2's own curve generator (<code>ClimatePrefab.RebuildCloudinessCurves</code> / <code>RebuildPrecipitationCurves</code>, decompiled from <code>Game.dll</code>) is reimplemented here exactly, including Unity's simplex noise, its gaussian draws and its animation curves. The app then searches for the season parameters whose <i>simulated year</i> matches the real climate, and shows you the simulated result next to the target on every card.</div>
-      <div><b>What the game does</b> — per game-day it draws <code>gaussian(Amount ± Deviation)</code>, adds <code>noise · Turbulence</code>, then attenuates by <code>1 − (noise − Chance)·2</code>, and finally fades precipitation out below 0.7 / 0.4 cloudiness, forcing it to zero below 0.2</div>
-      <div><b>Why vanilla feels so wet</b> — rain only stops completely once <code>noise ≥ Chance + 0.5</code>. The game's default (Chance 30) precipitates <b>54% of the year</b>; even Chance 0 rains a third of the time unless the clouds are thin</div>
-      <div><b>Sunshine vs rain</b> — the game calls it sunny when <code>cloudiness ≤ 0.5 and precipitation == 0</code>, so drizzle eats sunshine. Real sunshine and real rain frequency cannot both be met; the selector above the cards decides which one wins</div>
-      <div><b>Temperature</b> — the season means are used directly (the game draws around them). Deviation is the 90th-percentile daily spread the game expects: <code>σ / 0.78</code>, with σ from the mean monthly extremes (<code>|extreme − daily| / 2.04</code>)</div>
-      <div><b>Water</b> — Precipitation Amount is solved so the mean precipitation value equals the real rainfall rate, reading <code>precipitation 1.0 = 10 mm/h</code>. Deviation tracks Amount, since rain intensity is close to exponential</div>
-      <div><b>Random Seed matters</b> — a game year is only 12 days, so a season holds just three random draws: the same parameters swing between 15% and 85% sunshine depending on the seed. The app scans seeds, picks the one that lands closest to the real climate, and refits the parameters for it. <b>Use the seed it gives you.</b></div>
+      <div style="grid-column:1/-1;color:var(--text-3)">x = monthly precipitation (mm) · y = precipitation days per month · z = percent possible sunshine. Every value is computed per month and averaged over the season.</div>
+      <div><b>Season mapping</b> — Northern: Winter=DJF, Spring=MAM, Summer=JJA, Autumn=SON / Southern: flipped</div>
+      <div><b>Temperature Night / Day</b> — mean daily minimum / maximum, averaged per season</div>
+      <div><b>Temperature Deviation</b> — <code>max(2.5, σ(monthly) × 1.5)</code>; where the mean monthly extreme rows exist, also <code>|daily − extreme| / 1.5</code>, take the larger. The 2.5 floor keeps a realistic day/night swing even in stable seasons</div>
+      <div><b>Clouds Amount</b> — <code>100 − z</code></div>
+      <div><b>Clouds Chance</b> — <code>min(100, Clouds Amount × 1.5)</code></div>
+      <div><b>Clouds Amount Deviation</b> — <code>clamp(15 + σ(monthly cloud %), 15, 30)</code></div>
+      <div><b>Precipitation Chance</b> — <code>min(100, avg(y) × 6)</code> — the middle ground between the San Francisco (6.5) and Tampere (5.5) prefab patterns</div>
+      <div><b>Precipitation Amount</b> — <code>min(100, avg(x / y) × 6.25)</code> — daily rain intensity on a 0–100 scale</div>
+      <div><b>Precip. Amount Deviation</b> — <code>clamp(Amount × 0.25, 10, 30)</code></div>
+      <div><b>Turbulence</b> — <code>min(0.8, max(0.1, intensity / 25 × temp_factor))</code>, temp_factor = <code>clamp((daily mean + 5) / 15, 0.2, 1.0)</code> — snow-dominated seasons get suppressed turbulence, warm convective ones get all of it</div>
       <div><b>Start Time</b> — season start as a fraction of the year (Northern: Spring = Mar 1 ≈ 0.162 … / Southern: flipped)</div>
       <div><b>Max Sun Elevation</b> — <code>clamp(90 − |lat| + 23.44, 45, 90)</code>; clamp start defaults to 15° below that</div>
       <div><b>Aurora Chance / Strength</b> — latitude-based estimate: 0 below ~50°, scaling to ~68°; suppressed during bright high-latitude summers</div>
       <div><b>Freezing Temperature</b> — default 0 °C (the rain ↔ snow threshold); Default Weather Prefab / Weathers are game-side selections, keep defaults</div>
-      <div style="grid-column:1/-1;color:var(--text-3);margin-top:6px">The official prefabs sit far on the wet side of this trade-off, which is why vanilla maps rain so much. Tampere's is additionally hand-tuned for aurora gameplay and snow visuals.</div>
+      <div style="grid-column:1/-1;color:var(--text-3);margin-top:6px">Validated against the official CS2 San Francisco prefab (within ±10%). Tampere’s prefab is hand-tuned for aurora gameplay and snow visuals, so real-climate values intentionally differ — this app computes the real-climate-accurate values.</div>
     </div>
   </details>
 </div>
@@ -527,10 +515,6 @@ const state = {
   globals: defaultGlobals(),
   gDirty: new Set(),        // globals the user edited by hand (not auto-recomputed)
   wetUnit: null,            // wet-day counting threshold in mm (from wiki box / OM setting)
-  rainBias: 0.5,            // 0 = match sunshine first, 1 = match rain frequency first
-  solution: null,           // cached inverse solve
-  solvedKey: "",
-  solving: false,
 };
 
 function defaultGlobals() {
@@ -854,7 +838,7 @@ async function fetchOpenMeteoDaily(lat, lon) {
   const url = "https://archive-api.open-meteo.com/v1/archive?" + new URLSearchParams({
     latitude: lat, longitude: lon,
     start_date: "1991-01-01", end_date: "2020-12-31",
-    daily: "temperature_2m_max,temperature_2m_min,precipitation_sum,precipitation_hours,sunshine_duration,daylight_duration",
+    daily: "temperature_2m_max,temperature_2m_min,precipitation_sum,sunshine_duration,daylight_duration",
     timezone: "auto",
   });
   const r = await fetch(url);
@@ -868,7 +852,6 @@ function aggregateOpenMeteo(daily, wetThresholdMm) {
   const n = daily.time.length;
   const sumTmax = Array(12).fill(0), sumTmin = Array(12).fill(0), cntT = Array(12).fill(0);
   const sumSun = Array(12).fill(0), sumDayl = Array(12).fill(0);
-  const sumWetH = Array(12).fill(0), cntDays = Array(12).fill(0);
   // per (year,month) accumulators
   const ymPrecip = new Map(), ymWet = new Map(), ymMax = new Map(), ymMin = new Map();
 
@@ -885,8 +868,6 @@ function aggregateOpenMeteo(daily, wetThresholdMm) {
       else if (!ymWet.has(ym)) ymWet.set(ym, 0);
     }
     if (sun != null && dl != null) { sumSun[mo] += sun; sumDayl[mo] += dl; }
-    cntDays[mo]++;
-    if (daily.precipitation_hours?.[i] != null) sumWetH[mo] += daily.precipitation_hours[i];
   }
 
   const monthly = emptyMonthly();
@@ -896,13 +877,10 @@ function aggregateOpenMeteo(daily, wetThresholdMm) {
     return acc.map((arr) => arr.length ? reduce(arr) : null);
   };
 
-  monthly.wethours = new Array(12).fill(null);
   for (let m = 0; m < 12; m++) {
     monthly.mdmax[m] = cntT[m] ? Math.round(sumTmax[m] / cntT[m] * 10) / 10 : null;
     monthly.mdmin[m] = cntT[m] ? Math.round(sumTmin[m] / cntT[m] * 10) / 10 : null;
     monthly.sun[m] = sumDayl[m] > 0 ? Math.round(sumSun[m] / sumDayl[m] * 1000) / 10 : null;
-    // measured hours of precipitation per average month
-    monthly.wethours[m] = cntDays[m] ? Math.round(sumWetH[m] / cntDays[m] * DAYS_IN_MONTH[m] * 10) / 10 : null;
   }
   perMonth(ymPrecip, avg).forEach((v, m) => monthly.precip[m] = v == null ? null : Math.round(v * 10) / 10);
   perMonth(ymWet, avg).forEach((v, m) => monthly.pdays[m] = v == null ? null : Math.round(v * 10) / 10);
@@ -911,451 +889,97 @@ function aggregateOpenMeteo(daily, wetThresholdMm) {
   return monthly;
 }
 
-/* ================================================================
-   CS2 weather engine — a faithful port of ClimatePrefab's curve baking
-   (Game.dll, decompiled), used in reverse: the season parameters are
-   solved so the game's own generator reproduces the real climate.
+/* ================= CS2 formulas =================
+   Straight from "Formula for Climate Settings", validated there against the
+   official CS2 San Francisco and Tampere prefabs.
 
-   What the game does every time a climate prefab is built:
-     amount  = gaussian(Amount ± Deviation)            per game-day
-     amount += simplexNoise(t·4) · Turbulence · amount  intra-day gusts
-     if noise(t) > Chance:  amount ·= 1 − (noise − Chance)·2
-     precipitation additionally fades out below 0.7 / 0.4 cloudiness
-     and is forced to zero below 0.2
-   A game year is 12 days long, sampled 1728 times.
+     x = average monthly precipitation amount (mm)
+     y = average number of precipitation days per month
+     z = average percent possible sunshine
+   Every value is computed per month and averaged over the season.
    ================================================================ */
-const YEAR = 12, SAMPLES = 1728, K90 = 0.78003126;
-const MM_PER_HOUR_AT_FULL = 10;   // precipitation 1.0 read as a 10 mm/h downpour
-const VISIBLE_RAIN = 0.05;        // below this the rain lerp reads as mist
-const saturate = (v) => v < 0 ? 0 : v > 1 ? 1 : v;
-
-/* Unity.Mathematics.Random (xorshift32) */
-const F32 = new Float32Array(1), U32 = new Uint32Array(F32.buffer);
-function URandom(seed) { this.state = (seed >>> 0) || 1; this.next(); }
-URandom.prototype.next = function () {
-  let s = this.state;
-  s ^= s << 13; s >>>= 0;
-  s ^= s >>> 17;
-  s ^= s << 5; s >>>= 0;
-  return (this.state = s);
-};
-URandom.prototype.nextFloat = function () {
-  U32[0] = (0x3f800000 | (this.next() >>> 9)) >>> 0;
-  return F32[0] - 1;
-};
-
-/* Unity.Mathematics noise.snoise(float2) */
-const mod289 = (x) => x - Math.floor(x * (1 / 289)) * 289;
-const permute = (x) => mod289((x * 34 + 1) * x);
-const fract = (x) => x - Math.floor(x);
-function snoise(vx, vy) {
-  const Cx = 0.211324865405187, Cy = 0.366025403784439, Cz = -0.577350269189626, Cw = 0.024390243902439;
-  const d = (vx + vy) * Cy;
-  let ix = Math.floor(vx + d), iy = Math.floor(vy + d);
-  const di = (ix + iy) * Cx;
-  const x0x = vx - ix + di, x0y = vy - iy + di;
-  const i1x = x0x > x0y ? 1 : 0, i1y = 1 - i1x;
-  const x12x = x0x + Cx - i1x, x12y = x0y + Cx - i1y, x12z = x0x + Cz, x12w = x0y + Cz;
-  ix = mod289(ix); iy = mod289(iy);
-  const p0 = permute(permute(iy) + ix);
-  const p1 = permute(permute(iy + i1y) + ix + i1x);
-  const p2 = permute(permute(iy + 1) + ix + 1);
-  let m0 = Math.max(0.5 - (x0x * x0x + x0y * x0y), 0);
-  let m1 = Math.max(0.5 - (x12x * x12x + x12y * x12y), 0);
-  let m2 = Math.max(0.5 - (x12z * x12z + x12w * x12w), 0);
-  m0 *= m0; m0 *= m0; m1 *= m1; m1 *= m1; m2 *= m2; m2 *= m2;
-  const xa = 2 * fract(p0 * Cw) - 1, xb = 2 * fract(p1 * Cw) - 1, xc = 2 * fract(p2 * Cw) - 1;
-  const ha = Math.abs(xa) - 0.5, hb = Math.abs(xb) - 0.5, hc = Math.abs(xc) - 0.5;
-  const aa = xa - Math.floor(xa + 0.5), ab = xb - Math.floor(xb + 0.5), ac = xc - Math.floor(xc + 0.5);
-  m0 *= 1.79284291400159 - 0.85373472095314 * (aa * aa + ha * ha);
-  m1 *= 1.79284291400159 - 0.85373472095314 * (ab * ab + hb * hb);
-  m2 *= 1.79284291400159 - 0.85373472095314 * (ac * ac + hc * hc);
-  return 130 * (m0 * (aa * x0x + ha * x0y) + m1 * (ab * x12x + hb * x12y) + m2 * (ac * x12z + hc * x12w));
-}
-
-/* UnityEngine.AnimationCurve — hermite with smoothed tangents, looping */
-function Curve() { this.k = []; }
-Curve.prototype.addKey = function (t, v) {
-  this.k.push({ t, v, inT: 0, outT: 0 });
-  this.k.sort((a, b) => a.t - b.t);
-};
-Curve.prototype.evaluate = function (t) {
-  const k = this.k;
-  if (!k.length) return 0;
-  if (k.length === 1) return k[0].v;
-  const t0 = k[0].t, tN = k[k.length - 1].t, span = tN - t0;
-  if (span > 0 && (t < t0 || t > tN)) t = t0 + ((t - t0) % span + span) % span;
-  if (t <= t0) return k[0].v;
-  if (t >= tN) return k[k.length - 1].v;
-  let lo = 0, hi = k.length - 1;
-  while (hi - lo > 1) { const mid = (lo + hi) >> 1; if (k[mid].t <= t) lo = mid; else hi = mid; }
-  const a = k[lo], b = k[hi], dt = b.t - a.t;
-  if (dt <= 0) return a.v;
-  const u = (t - a.t) / dt, u2 = u * u, u3 = u2 * u;
-  return (2 * u3 - 3 * u2 + 1) * a.v + (u3 - 2 * u2 + u) * dt * a.outT
-       + (-2 * u3 + 3 * u2) * b.v + (u3 - u2) * dt * b.inT;
-};
-/* ClimatePrefab.LoopCurve: smooth tangents, clamp to range, wrap a copy at +12 */
-function loopCurve(curve, minValue = 0, maxValue = 1) {
-  const k = curve.k;
-  for (let i = 0; i < k.length; i++) {
-    let dx = 0, dy = 0;
-    if (i > 0) { dx += k[i].t - k[i - 1].t; dy += k[i].v - k[i - 1].v; }
-    if (i < k.length - 1) { dx += k[i + 1].t - k[i].t; dy += k[i + 1].v - k[i].v; }
-    k[i].inT = k[i].outT = dx !== 0 ? dy / dx : 0;
-  }
-  for (const key of k) {
-    if (key.v <= minValue) { key.v = minValue; key.inT = key.outT = 0; }
-    if (key.v >= maxValue) { key.v = maxValue; key.inT = key.outT = 0; }
-  }
-  k[0].inT = k[0].outT = 0;
-  k.push({ t: k[0].t + YEAR, v: k[0].v, inT: 0, outT: 0 });
-  return curve;
-}
-/* ClimatePrefab.GaussianRandom — Box-Muller, resampled to stay within ±2·dev */
-function gaussianRandom(mean, dev, rng) {
-  let n = 0, out;
-  do {
-    out = mean + dev * Math.sqrt(-2 * Math.log(rng.nextFloat())) * Math.sin(Math.PI * 2 * rng.nextFloat());
-  } while (Math.abs(out - mean) > 2 * dev && n++ < 20);
-  return out;
-}
-function genCurveFromMinMax(keyCount, cmin, cmax, seed, minValue, maxValue) {
-  const rng = new URandom(seed), c = new Curve();
-  for (let i = 0; i < keyCount; i++) {
-    const t = i / keyCount * YEAR, lo = cmin.evaluate(t), hi = cmax.evaluate(t);
-    c.k.push({ t, v: gaussianRandom((lo + hi) / 2, (hi - lo) / 2 * K90, rng), inT: 0, outT: 0 });
-  }
-  return loopCurve(c, minValue, maxValue);
-}
-
-function seasonMidTimes(seasons) {
-  const order = seasons.map((s, i) => i).sort((a, b) => seasons[a].startTime - seasons[b].startTime);
-  return order.map((si, idx) => {
-    const a = seasons[si].startTime;
-    let b = seasons[order[(idx + 1) % order.length]].startTime;
-    if (b < a) b += 1;
-    return { index: si, mid: (a + b) * 0.5 * YEAR % YEAR, start: a, end: b };
-  });
-}
-
-function seasonCurves(seasons) {
-  const c = {
-    cloudChance: new Curve(), cloudMin: new Curve(), cloudMax: new Curve(),
-    precipChance: new Curve(), precipMin: new Curve(), precipMax: new Curve(), turbulence: new Curve(),
-  };
-  for (const { index, mid } of seasonMidTimes(seasons)) {
-    const s = seasons[index];
-    c.cloudMin.addKey(mid, (s.cloudAmount - Math.abs(s.cloudAmountDev)) * 0.01);
-    c.cloudMax.addKey(mid, (s.cloudAmount + Math.abs(s.cloudAmountDev)) * 0.01);
-    c.cloudChance.addKey(mid, s.cloudChance * 0.01);
-    c.precipMin.addKey(mid, (s.precipAmount - Math.abs(s.precipAmountDev)) * 0.01);
-    c.precipMax.addKey(mid, (s.precipAmount + Math.abs(s.precipAmountDev)) * 0.01);
-    c.precipChance.addKey(mid, s.precipChance * 0.01);
-    c.turbulence.addKey(mid, s.turbulence);
-  }
-  for (const key of Object.keys(c)) loopCurve(c[key]);
-  return c;
-}
-
-/* the two curves the game bakes and then samples every simulation frame */
-function bakeYear(seasons, seed) {
-  const sc = seasonCurves(seasons);
-  const cloudAmt = genCurveFromMinMax(12, sc.cloudMin, sc.cloudMax, seed + 1000, 0, 1);
-  let r = new URandom(seed + 2000);
-  const ca = r.nextFloat() * 100, cb = r.nextFloat() * 100;
-  const cloud = new Float64Array(SAMPLES);
-  for (let i = 0; i < SAMPLES; i++) {
-    const t = i / SAMPLES * YEAR;
-    let a = saturate(cloudAmt.evaluate(t));
-    const turb = saturate(sc.turbulence.evaluate(t));
-    a = saturate(a + snoise(t * 4, cb) * turb * a);
-    const chance = saturate(sc.cloudChance.evaluate(t));
-    const gate = saturate((snoise(t, ca) + snoise(t * 2, ca + 7) * 0.5) * 0.5 + 0.5);
-    if (gate > chance) a *= 1 - saturate((gate - chance) * 2);
-    cloud[i] = a;
-  }
-  const precipAmt = genCurveFromMinMax(12, sc.precipMin, sc.precipMax, seed + 3000, 0, 1);
-  r = new URandom(seed + 4000);
-  const pa = r.nextFloat() * 100, pb = r.nextFloat() * 100;
-  const precip = new Float64Array(SAMPLES);
-  for (let i = 0; i < SAMPLES; i++) {
-    const t = i / SAMPLES * YEAR;
-    let a = saturate(precipAmt.evaluate(t));
-    const turb = saturate(sc.turbulence.evaluate(t));
-    a = saturate(a + snoise(t * 4, pb) * turb * a);
-    const chance = saturate(sc.precipChance.evaluate(t));
-    const gate = saturate((snoise(t, pa) + snoise(t * 2, pa + 7) * 0.5) * 0.5 + 0.5);
-    if (gate > chance) a *= 1 - saturate((gate - chance) * 2);
-    const cl = cloud[i];
-    if (cl < 0.7) a *= cl / 0.7;
-    if (cl < 0.4) a *= cl / 0.4;
-    if (cl < 0.2) a = 0;
-    precip[i] = a;
-  }
-  return { cloud, precip };
-}
-
-/* ---------------- inverse solver ---------------- */
-const EXPECT_SEEDS = [1, 7, 23];
-let SEASON_OF_SAMPLE = null;
-
-function buildSampleMap(seasons) {
-  const mids = seasonMidTimes(seasons);
-  const map = new Int8Array(SAMPLES);
-  for (let i = 0; i < SAMPLES; i++) {
-    const norm = i / SAMPLES;
-    let si = mids[0].index;
-    for (const m of mids) {
-      if ((norm >= m.start && norm < m.end) || (m.end > 1 && norm < m.end - 1)) { si = m.index; break; }
-    }
-    map[i] = si;
-  }
-  SEASON_OF_SAMPLE = map;
-}
-
-function evaluateYear(seasons, seeds, stride) {
-  const map = SEASON_OF_SAMPLE;
-  const acc = seasons.map(() => ({ n: 0, cloud: 0, sunny: 0, wet: 0, visible: 0, precip: 0, wetSum: 0 }));
-  for (const seed of seeds) {
-    const { cloud, precip } = bakeYear(seasons, seed);
-    for (let i = 0; i < SAMPLES; i += stride) {
-      const a = acc[map[i]];
-      a.n++; a.cloud += cloud[i]; a.precip += precip[i];
-      if (precip[i] > 0) { a.wet++; a.wetSum += precip[i]; }
-      if (precip[i] > VISIBLE_RAIN) a.visible++;
-      if (cloud[i] <= 0.5 && precip[i] === 0) a.sunny++;
-    }
-  }
-  return acc.map((a) => ({
-    meanCloud: a.cloud / a.n, sunnyFrac: a.sunny / a.n, wetFrac: a.wet / a.n,
-    visibleFrac: a.visible / a.n, meanPrecip: a.precip / a.n,
-    intensity: a.wet ? a.wetSum / a.wet : 0,
-  }));
-}
-
-function solveCost(st, targets, rainBias) {
-  const wRain = 0.5 + rainBias, wSun = 1.5 - rainBias;
-  return st.reduce((sum, s, i) => {
-    const t = targets[i], want = t.mmPerHour / MM_PER_HOUR_AT_FULL;
-    const water = (s.meanPrecip - want) / Math.max(want, 0.002);
-    return sum + wSun * (s.sunnyFrac - t.sunFrac) ** 2
-               + wRain * (s.wetFrac - t.wetFrac) ** 2 + 0.05 * water ** 2;
-  }, 0);
-}
-
-function bisectAll(seasons, key, lo, hi, stat, targets, iters, seeds, stride, after) {
-  const l = seasons.map(() => lo), h = seasons.map(() => hi);
-  const apply = () => {
-    seasons.forEach((s, i) => { if (targets[i] != null) s[key] = (l[i] + h[i]) / 2; });
-    if (after) after(seasons);
-  };
-  for (let it = 0; it < iters; it++) {
-    apply();
-    const st = evaluateYear(seasons, seeds, stride);
-    seasons.forEach((s, i) => {
-      if (targets[i] == null) return;
-      if (stat(st[i]) < targets[i]) l[i] = s[key]; else h[i] = s[key];
-    });
-  }
-  apply();
-}
-
-/* rain intensity is roughly exponential, so spread == mean; keeping it inside
-   [0,1] stops the game's own min/max clamping from shifting the season average */
-const syncPrecipDev = (seasons) => seasons.forEach((s) => {
-  s.precipAmountDev = clamp(Math.min(s.precipAmount, 100 - s.precipAmount), 1, 100);
-});
-
-function solveParams(targets, startTimes, rainBias, seeds, stride) {
-  const seasons = startTimes.map((startTime, i) => ({
-    startTime,
-    cloudChance: 30, cloudAmount: 35,
-    cloudAmountDev: clamp(targets[i].cloudVarPts, 1, 100),
-    precipChance: 0,
-    precipAmount: clamp(200 * (targets[i].mmPerHour / MM_PER_HOUR_AT_FULL) / Math.max(targets[i].wetFrac, 0.01), 0, 100),
-    precipAmountDev: 20,
-    turbulence: clamp(targets[i].turbulence, 0.1, 0.8),
-  }));
-  buildSampleMap(seasons);
-  syncPrecipDev(seasons);
-  const cost = (st) => solveCost(st, targets, rainBias);
-
-  for (let outer = 0; outer < 2; outer++) {
-    if (outer === 0) {
-      // start somewhere sane: sunshine from the gate, cloud thickness from its complement
-      bisectAll(seasons, "cloudChance", 0, 100, (s) => -s.sunnyFrac, targets.map((t) => -t.sunFrac), 9, seeds, stride);
-      bisectAll(seasons, "cloudAmount", 0, 100, (s) => s.meanCloud, targets.map((t) => 1 - t.sunFrac), 9, seeds, stride);
-    }
-    // then walk the real trade-off surface (sunshine against rain frequency)
-    let best = cost(evaluateYear(seasons, seeds, stride));
-    for (const step of [10, 4]) {
-      for (let pass = 0; pass < 5; pass++) {
-        let improved = false;
-        for (const key of ["cloudChance", "cloudAmount"]) {
-          for (let i = 0; i < seasons.length; i++) {
-            for (const d of [step, -step]) {
-              const prev = seasons[i][key], next = clamp(prev + d, 0, 100);
-              if (next === prev) continue;
-              seasons[i][key] = next;
-              const c = cost(evaluateYear(seasons, seeds, stride));
-              if (c < best - 1e-7) { best = c; improved = true; } else seasons[i][key] = prev;
-            }
-          }
-        }
-        if (!improved) break;
-      }
-    }
-    bisectAll(seasons, "precipChance", 0, 100, (s) => s.wetFrac, targets.map((t) => t.wetFrac), 9, seeds, stride, syncPrecipDev);
-    for (let k = 0; k < 2; k++) {
-      bisectAll(seasons, "precipAmount", 0, 100, (s) => s.meanPrecip,
-        targets.map((t) => t.mmPerHour / MM_PER_HOUR_AT_FULL), 12, seeds, stride, syncPrecipDev);
-    }
-  }
-  return seasons;
-}
-
-/**
- * A game year lasts 12 days, so each season holds only three of the twelve random
- * draws: the weather a map actually gets swings hugely with its Random Seed (the
- * same parameters give anywhere from 15% to 85% sunshine). So the parameters are
- * fitted against the expectation first, then the seed whose year lands closest is
- * picked, then the parameters are refitted for that exact seed.
- */
-function solveClimate(targets, startTimes, rainBias, seedScan = 120) {
-  const coarse = solveParams(targets, startTimes, rainBias, EXPECT_SEEDS, 6);
-  let bestSeed = 1, bestCost = Infinity;
-  for (let seed = 1; seed <= seedScan; seed++) {
-    const c = solveCost(evaluateYear(coarse, [seed], 2), targets, rainBias);
-    if (c < bestCost) { bestCost = c; bestSeed = seed; }
-  }
-  const seasons = solveParams(targets, startTimes, rainBias, [bestSeed], 1);
-  return { seasons, seed: bestSeed, achieved: evaluateYear(seasons, [bestSeed], 1) };
-}
-
-/* ---------------- real-world climate → solver targets ---------------- */
 function seasonMonths(hemisphere) {
   const N = { Winter: [11, 0, 1], Spring: [2, 3, 4], Summer: [5, 6, 7], Autumn: [8, 9, 10] };
   if (hemisphere === "N") return N;
   return { Winter: N.Summer, Spring: N.Autumn, Summer: N.Winter, Autumn: N.Spring };
 }
 
-/* hours of the month during which precipitation actually falls */
-function wetHoursFor(month) {
-  const mm = state.monthly.precip[month], days = state.monthly.pdays[month];
-  if (mm == null || days == null) return null;
-  const hours = DAYS_IN_MONTH[month] * 24;
-  if (state.monthly.wethours && state.monthly.wethours[month] != null) {
-    return clamp(state.monthly.wethours[month] / hours, 0, 1);
-  }
-  // no measured wet-hour count: infer it from the water and a ~1.2 mm/h typical rate,
-  // bounded to a believable 2–14 hours per wet day
-  const perDay = days > 0 ? mm / days : 0;
-  const hoursPerWetDay = clamp(perDay / 1.2, 2, 14);
-  return clamp(days * hoursPerWetDay / hours, 0, 1);
-}
+function computeSeason(monthly, months) {
+  const pick = (key) => months.map((i) => monthly[key][i]).filter((v) => v != null && isFinite(v));
+  const r = {};
 
-function buildTargets(hemisphere) {
-  const map = seasonMonths(hemisphere);
-  const out = {};
-  for (const [season, months] of Object.entries(map)) {
-    const pick = (k) => months.map((i) => state.monthly[k][i]).filter((v) => v != null && isFinite(v));
-    const sun = pick("sun"), precip = pick("precip"), pdays = pick("pdays");
-    if (sun.length !== 3 || precip.length !== 3 || pdays.length !== 3) { out[season] = null; continue; }
-    const hours = avg(months.map((i) => DAYS_IN_MONTH[i] * 24));
-    const mmPerHour = avg(months.map((i) => state.monthly.precip[i] / (DAYS_IN_MONTH[i] * 24)));
-    const wet = months.map(wetHoursFor).filter((v) => v != null);
-    const sunFrac = clamp(avg(sun) / 100, 0, 1);
-    const wetFrac = wet.length === 3 ? avg(wet) : 0;
-    out[season] = {
-      sunFrac, wetFrac, mmPerHour,
-      cloudVarPts: clamp(15 + popstd(sun.map((z) => 100 - z)), 10, 60),
-      // bursty weather scales with how hard it rains while it is raining
-      turbulence: clamp((wetFrac > 0 ? mmPerHour / wetFrac : 0) / 3, 0.1, 0.8),
-      months,
-    };
-  }
-  return out;
-}
-
-/* Temperature is not solved: the game draws each game-day from a gaussian centred
-   on these values, so the season mean IS the parameter. The deviation is the 90th
-   percentile of daily spread (the game divides it by k90PercentileToStdDev = 0.78),
-   estimated from the mean monthly extremes — the mean of 30 daily maxima sits about
-   2.04 standard deviations above the monthly mean. */
-function temperatureFor(months) {
-  const pick = (k) => months.map((i) => state.monthly[k][i]).filter((v) => v != null && isFinite(v));
+  /* 1. Temperature Averages — mean daily min / max, averaged per season */
   const mins = pick("mdmin"), maxs = pick("mdmax");
-  const r = { tempNight: null, tempDay: null, tempDevNight: null, tempDevDay: null };
-  if (mins.length === 3) r.tempNight = avg(mins);
-  if (maxs.length === 3) r.tempDay = avg(maxs);
-  const dev = (dailyKey, extremeKey, sign) => {
+  r.tempNight = mins.length === 3 ? avg(mins) : null;
+  r.tempDay = maxs.length === 3 ? avg(maxs) : null;
+
+  /* 2. Temperature Deviation — max(2.5, population_std × 1.5); where the mean
+        monthly extreme rows exist, also |daily − extreme| / 1.5, take the larger */
+  const deviation = (dailyKey, extremeKey) => {
     const daily = pick(dailyKey);
     if (daily.length !== 3) return null;
-    const pairs = months.map((i) => [state.monthly[dailyKey][i], state.monthly[extremeKey][i]])
+    let d = popstd(daily) * 1.5;
+    const pairs = months
+      .map((i) => [monthly[dailyKey][i], monthly[extremeKey][i]])
       .filter(([a, b]) => a != null && b != null);
-    let sigma = pairs.length === 3
-      ? avg(pairs.map(([a, b]) => Math.abs(b - a))) / 2.04
-      : Math.max(1.5, popstd(daily) * 1.2);
-    return clamp(sigma / K90, 0.5, 40);
+    if (pairs.length === 3) d = Math.max(d, avg(pairs.map(([a, b]) => Math.abs(a - b))) / 1.5);
+    return Math.max(2.5, d);
   };
-  r.tempDevNight = dev("mdmin", "meanmin");
-  r.tempDevDay = dev("mdmax", "meanmax");
-  return r;
-}
+  r.tempDevNight = deviation("mdmin", "meanmin");
+  r.tempDevDay = deviation("mdmax", "meanmax");
 
-/* ---------------- solution cache ---------------- */
-function solutionKey() {
-  return JSON.stringify([state.monthly, state.hemisphere, state.rainBias]);
+  /* 3–5. Clouds — amount is the real cloud fraction implied by sunshine */
+  const clouds = months.map((i) => monthly.sun[i]).filter((v) => v != null).map((z) => 100 - z);
+  if (clouds.length === 3) {
+    r.cloudsAmount = avg(clouds);                                   // 100 − z
+    r.cloudsChance = Math.min(100, r.cloudsAmount * 1.5);           // matches the SF prefab pattern
+    r.cloudsAmountDev = clamp(15 + popstd(clouds), 15, 30);         // baseline 15 + seasonal spread
+  } else {
+    r.cloudsAmount = r.cloudsChance = r.cloudsAmountDev = null;
+  }
+
+  /* 6. Precipitation Chance — rainy days × 6 (between the SF 6.5 and Tampere 5.5 patterns) */
+  const pdays = pick("pdays");
+  r.precipChance = pdays.length === 3 ? Math.min(100, avg(pdays) * 6) : null;
+
+  /* 7–9. Precipitation Amount, its deviation, and Turbulence, all from the daily
+          rain intensity x/y */
+  const intensity = months
+    .map((i) => [monthly.precip[i], monthly.pdays[i]])
+    .filter(([x, y]) => x != null && y != null)
+    .map(([x, y]) => y > 0 ? x / y : 0);
+  if (intensity.length === 3) {
+    const meanIntensity = avg(intensity);
+    r.precipAmount = Math.min(100, meanIntensity * 6.25);           // daily intensity on a 0–100 scale
+    r.precipAmountDev = clamp(r.precipAmount * 0.25, 10, 30);
+    if (r.tempDay != null && r.tempNight != null) {
+      // cold, snow-dominated seasons get suppressed turbulence; warm convective ones get all of it
+      const tempFactor = clamp(((r.tempDay + r.tempNight) / 2 + 5) / 15, 0.2, 1.0);
+      r.turbulence = Math.min(0.8, Math.max(0.1, meanIntensity / 25 * tempFactor));
+    } else r.turbulence = null;
+  } else {
+    r.precipAmount = r.precipAmountDev = r.turbulence = null;
+  }
+
+  return r;
 }
 
 function computeAll() {
   const map = seasonMonths(state.hemisphere);
-  const sol = state.solution;
   const out = {};
-  const names = Object.keys(map);
-  names.forEach((season, idx) => {
-    const months = map[season];
-    const r = { months, ...temperatureFor(months) };
-    const [doy, lbl] = SEASON_START[state.hemisphere][season];
+  for (const [season, months] of Object.entries(map)) {
+    const r = { months, ...computeSeason(state.monthly, months) };
+    const [doy, label] = SEASON_START[state.hemisphere][season];
     r.startTime = Math.round(doy / 365 * 1000) / 1000;
-    r.startTimeText = r.startTime.toFixed(3) + "  ·  " + lbl;
+    r.startTimeText = r.startTime.toFixed(3) + "  ·  " + label;
     r.seasonPrefab = "Season " + season;
     const au = auroraFor(season, state.globals.lat);
     r.auroraChance = au.chance;
     r.auroraStrength = au.strength;
-    if (sol && sol.order[idx] === season) {
-      const p = sol.seasons[idx], a = sol.achieved[idx], t = sol.targets[idx];
-      r.cloudsChance = p.cloudChance;
-      r.cloudsAmount = p.cloudAmount;
-      r.cloudsAmountDev = p.cloudAmountDev;
-      r.precipChance = p.precipChance;
-      r.precipAmount = p.precipAmount;
-      r.precipAmountDev = p.precipAmountDev;
-      r.turbulence = p.turbulence;
-      r.achieved = a;
-      r.target = t;
-    }
     out[season] = r;
-  });
+  }
   return out;
 }
-
-/* runs the (expensive) inverse solve and caches it */
-function runSolve() {
-  const key = solutionKey();
-  const targetMap = buildTargets(state.hemisphere);
-  const order = Object.keys(targetMap);
-  const targets = order.map((s) => targetMap[s]);
-  if (targets.some((t) => t == null)) { state.solution = null; state.solvedKey = key; return false; }
-  const startTimes = order.map((s) => Math.round(SEASON_START[state.hemisphere][s][0] / 365 * 1000) / 1000);
-  const { seasons, seed, achieved } = solveClimate(targets, startTimes, state.rainBias);
-  state.solution = { seasons, seed, achieved, targets, order };
-  state.solvedKey = key;
-  if (!state.gDirty.has("seed")) state.globals.seed = seed;
-  return true;
-}
-
 
 /* ================= rendering ================= */
 const SEASON_META = {
@@ -1416,25 +1040,7 @@ const KV_ROWS = [
   ["auroraStrength", "Aurora Strength", "", fmt2, false],
 ];
 
-let solveTimer = null;
-/* the inverse solve is expensive, so it runs debounced and off the paint path */
-function scheduleSolve() {
-  clearTimeout(solveTimer);
-  solveTimer = setTimeout(() => {
-    state.solving = true;
-    renderResults();
-    setTimeout(() => {
-      try { runSolve(); } catch (e) { console.error(e); state.solution = null; }
-      state.solving = false;
-      renderGlobals();
-      renderResults();
-      persist();
-    }, 30);
-  }, 250);
-}
-
 function renderResults() {
-  if (state.solvedKey !== solutionKey() && !state.solving) scheduleSolve();
   const results = computeAll();
   const grid = $("#seasonGrid");
   grid.innerHTML = "";
@@ -1455,7 +1061,6 @@ function renderResults() {
     card.innerHTML = `
       <h3>${meta.icon} ${season}<span class="months">${monthsLabel}</span></h3>
       <div class="kv-list">${rows}</div>
-      ${verifyBlock(r)}
       <div class="card-actions"><button class="btn small" data-copy-season="${season}">Copy</button></div>`;
     grid.appendChild(card);
   }
@@ -1469,10 +1074,7 @@ function renderResults() {
   });
 
   const warn = $("#warnNote");
-  if (state.solving) {
-    $("#warnNoteText").textContent = "simulating the game's weather generator…";
-    warn.style.display = "inline-flex";
-  } else if (anyMissing) {
+  if (anyMissing) {
     $("#warnNoteText").textContent = "Some values missing — fill the amber cells or use Open-Meteo";
     warn.style.display = "inline-flex";
   } else warn.style.display = "none";
@@ -1481,19 +1083,6 @@ function renderResults() {
   $("#btnFillMissing").style.display = missingAny && state.place ? "" : "none";
 }
 
-/* what the game will actually produce with these values, next to the real climate */
-function verifyBlock(r) {
-  if (!r.achieved || !r.target) return "";
-  const row = (label, real, game, unit = "%") =>
-    `<div class="vrow"><span>${label}</span><b>${real}${unit}</b><i>→</i><b>${game}${unit}</b></div>`;
-  const p = (v) => (v * 100).toFixed(0);
-  return `<div class="verify">
-    <div class="vhead">real → in-game</div>
-    ${row("Sunny", p(r.target.sunFrac), p(r.achieved.sunnyFrac))}
-    ${row("Rain time", p(r.target.wetFrac), p(r.achieved.visibleFrac))}
-    ${row("Water", (r.target.mmPerHour * 730).toFixed(0), (r.achieved.meanPrecip * MM_PER_HOUR_AT_FULL * 730).toFixed(0), " mm/mo")}
-  </div>`;
-}
 
 /* ---- global settings card ---- */
 const G_FIELDS = [
@@ -1505,8 +1094,7 @@ const G_FIELDS = [
   ["freezing", "Freezing Temperature °C", "number"],
   ["seed", "Random Seed", "seed"],
 ];
-/* the solver picks the seed, so it is auto unless the user overrides it */
-const AUTO_G = new Set(["maxSun", "clampStart", "seed"]);
+const AUTO_G = new Set(["maxSun", "clampStart"]);
 const DEFAULT_WEATHERS = "Clear · Few · Scattered · Broken · Overcast · Stormy";
 
 function renderGlobals() {
@@ -1517,7 +1105,7 @@ function renderGlobals() {
     const auto = AUTO_G.has(key) && !state.gDirty.has(key);
     const val = g[key] == null ? "" : g[key];
     if (type === "seed") {
-      html += `<div class="g-item${auto ? " auto" : ""}"><label>${label}</label><div class="row"><input data-g="seed" type="text" inputmode="numeric" value="${val}" title="A game year is only 12 days long, so the seed changes the weather a lot. This one was picked to fit the real climate best."><button class="dice" id="diceSeed" title="Randomize (loses the fitted seed)">🎲</button></div></div>`;
+      html += `<div class="g-item"><label>${label}</label><div class="row"><input data-g="seed" type="text" inputmode="numeric" value="${val}"><button class="dice" id="diceSeed" title="Randomize">🎲</button></div></div>`;
     } else {
       html += `<div class="g-item${auto ? " auto" : ""}"><label>${label}</label><input data-g="${key}" type="text" ${type === "number" ? 'inputmode="decimal"' : ""} value="${val}"></div>`;
     }
@@ -1564,12 +1152,6 @@ function renderGlobals() {
 function seasonText(season, r) {
   const lines = [`[${season}]`];
   for (const [key, label, unit, fmt] of KV_ROWS) lines.push(`${label}: ${fmt(r[key])}${r[key] != null && unit ? " " + unit : ""}`);
-  if (r.achieved && r.target) {
-    const p = (v) => (v * 100).toFixed(0) + "%";
-    lines.push(`  # simulated: sunny ${p(r.target.sunFrac)} -> ${p(r.achieved.sunnyFrac)}, ` +
-      `rain ${p(r.target.wetFrac)} -> ${p(r.achieved.visibleFrac)}, ` +
-      `water ${(r.target.mmPerHour * 730).toFixed(0)} -> ${(r.achieved.meanPrecip * MM_PER_HOUR_AT_FULL * 730).toFixed(0)} mm/mo`);
-  }
   return lines.join("\n");
 }
 
@@ -1583,7 +1165,7 @@ function globalText() {
     `Max Sun Elevation: ${fmt1(g.maxSun)} °`,
     `Sun Elevation Clamp Start: ${fmt1(g.clampStart)} °`,
     `Freezing Temperature: ${fmt1(g.freezing)} °C`,
-    `Random Seed: ${g.seed ?? "—"}   (fitted — the 12-day game year makes this matter)`,
+    `Random Seed: ${g.seed ?? "—"}`,
     "Default Weather Prefab: keep game default",
     `Default Weathers: ${DEFAULT_WEATHERS.replaceAll(" · ", ", ")}`,
   ].join("\n");
@@ -1877,7 +1459,7 @@ function persist() {
       monthly: state.monthly, fieldSource: state.fieldSource,
       place: state.place, hemisphere: state.hemisphere,
       globals: state.globals, gDirty: [...state.gDirty],
-      wetUnit: state.wetUnit, rainBias: state.rainBias, modelEra: 3,
+      wetUnit: state.wetUnit,
     }));
   } catch {}
 }
@@ -1892,8 +1474,6 @@ function restore() {
     if (d.globals) state.globals = { ...defaultGlobals(), ...d.globals };
     state.gDirty = new Set(d.gDirty ?? []);
     state.wetUnit = d.wetUnit ?? null;
-    state.rainBias = d.rainBias ?? 0.5;
-    $("#rainBias").value = String(state.rainBias);
     setHemisphere(state.hemisphere, false);
     refreshAll();
   } catch {}
@@ -1928,11 +1508,6 @@ $("#wetThreshold").addEventListener("change", () => {
     toast("Re-aggregated with the new wet-day threshold.");
   }
 });
-$("#rainBias").addEventListener("change", () => {
-  state.rainBias = parseFloat($("#rainBias").value);
-  renderResults();
-  persist();
-});
 $("#btnClearData").addEventListener("click", () => {
   state.monthly = emptyMonthly();
   state.fieldSource = {};
@@ -1944,17 +1519,14 @@ $("#btnExport").addEventListener("click", () => {
   const payload = {
     app: "CS2 Climate Calculator",
     place: state.place, hemisphere: state.hemisphere,
-    rainBias: state.rainBias, wetDayThresholdMm: state.wetUnit,
-    simulated: state.solution ? state.solution.order.map((s, i) => ({
-      season: s, target: state.solution.targets[i], inGame: state.solution.achieved[i],
-    })) : null,
+    wetDayThresholdMm: state.wetUnit,
     globals: {
       ...state.globals,
       defaultWeatherPrefab: "keep game default",
       defaultWeathers: ["Clear", "Few", "Scattered", "Broken", "Overcast", "Stormy"],
     },
     monthly: state.monthly, seasons: results,
-    method: "Season parameters solved by inverting the game's own ClimatePrefab curve generator",
+    formulaDoc: "Formula for Climate Settings (validated vs CS2 SF/Tampere prefabs)",
   };
   const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
   const a = document.createElement("a");
