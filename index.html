@@ -416,7 +416,8 @@
         <span class="sub">Global + per season — every field in the CS2 climate section</span>
         <div class="spacer"></div>
         <select id="precipModel" title="Precipitation model" style="background:var(--card);border:1px solid var(--border);border-radius:8px;color:var(--text-2);padding:4px 8px;font-family:inherit;font-size:12px;">
-          <option value="v3" selected>Precip v3 · realistic wet-time</option>
+          <option value="v4" selected>Precip v4 · game-exact (decompiled)</option>
+          <option value="v3">Precip v3 · realistic wet-time</option>
           <option value="v2">Precip v2 · prefab-anchored</option>
           <option value="v1">Precip v1 · original doc</option>
         </select>
@@ -472,7 +473,8 @@
       <div><b>Clouds Amount</b> — <code>100 − sunshine %</code></div>
       <div><b>Clouds Chance</b> — <code>min(100, Clouds Amount × 1.5)</code></div>
       <div><b>Clouds Amount Deviation</b> — <code>clamp(15 + σ(monthly cloud %), 15, 30)</code></div>
-      <div><b>Precipitation Chance (v3, default)</b> — realistic wet-time: <code>monthly mm ÷ (rate × hours in month) × 3</code>, rate = <code>(0.6 + 1.4×warmth) × (1 + 3.5×convectivity)</code> mm/h (light snow 0.6 → warm rain 2.0 → convective downpour ~9). CS2 consumes Chance roughly as share-of-time and official prefabs already over-rain, so this anchors to physics (×3 keeps weather present in gameplay; set Chance × to 33% for strict realism). The <b>Chance ×%</b> box scales any model to taste</div>
+      <div><b>Precipitation Chance (v4, default — from decompiled game code)</b> — CS2 bakes precipitation as <code>gaussian(Amount±Dev) × (1 − (noise − Chance)×2)</code> with noise centered at 0.5: rain only fully stops when <code>noise ≥ Chance + 0.5</code>, and is zeroed when cloudiness &lt; 0.2. That +0.5 offset is why Chance ≥ 50 rains nonstop. v4 inverts this gate so the share of time with visible rain matches the real wet-time — results usually land in 0–10, which is correct for this engine</div>
+      <div><b>Precipitation Chance (v3)</b> — realistic wet-time: <code>monthly mm ÷ (rate × hours in month) × 3</code>, rate = <code>(0.6 + 1.4×warmth) × (1 + 3.5×convectivity)</code> mm/h. The <b>Chance ×%</b> box scales the rain-frequency target in any model</div>
       <div><b>Precipitation Chance (v2)</b> — <code>days × factor × (1 − 0.5 × convectivity)</code>; factor 5.5 (≥0.1 mm counting) / 6.5 (≥0.25 mm) restores the SF/Tampere prefab anchors; v1: <code>days × 6</code></div>
       <div><b>Convectivity</b> — <code>warm((T−15)/10) × sunny((sun% − 40)/30)</code>, each clamped 0–1. Hot + sunny-despite-rain = brief afternoon thunderstorms (Charleston, Miami) get up to −50% Chance; overcast monsoon/frontal rain (Seoul jangma, London) is untouched</div>
       <div><b>Precipitation Amount (v2)</b> — intensity soft-knee: mm/day above 11 counts half (a few torrential events skew the mean), then <code>× 6.25</code>; v1: raw <code>× 6.25</code></div>
@@ -523,8 +525,8 @@ const state = {
   globals: defaultGlobals(),
   gDirty: new Set(),        // globals the user edited by hand (not auto-recomputed)
   wetUnit: null,            // wet-day counting threshold in mm (from wiki box / OM setting)
-  precipModel: "v3",        // 'v3' realistic wet-time (default) | 'v2' convective-corrected | 'v1' original doc
-  chanceScale: 100,         // % multiplier applied to Precipitation Chance in every model
+  precipModel: "v4",        // 'v4' game-exact solver | 'v3' wet-time | 'v2' convective | 'v1' original doc
+  chanceScale: 100,         // % multiplier applied to the rain-frequency target / Chance
 };
 
 function defaultGlobals() {
@@ -577,6 +579,27 @@ function popstd(a) {
 }
 const fmt1 = (v) => v == null || !isFinite(v) ? "—" : (Math.round(v * 10) / 10).toFixed(1);
 const fmt2 = (v) => v == null || !isFinite(v) ? "—" : (Math.round(v * 100) / 100).toFixed(2);
+
+/* normal CDF / quantile (Abramowitz–Stegun erf; Acklam probit) */
+function erf(x) {
+  const s = x < 0 ? -1 : 1; x = Math.abs(x);
+  const t = 1 / (1 + 0.3275911 * x);
+  const y = 1 - ((((1.061405429 * t - 1.453152027) * t + 1.421413741) * t - 0.284496736) * t + 0.254829592) * t * Math.exp(-x * x);
+  return s * y;
+}
+const normCdf = (z) => 0.5 * (1 + erf(z / Math.SQRT2));
+function probit(p) {
+  p = clamp(p, 1e-6, 1 - 1e-6);
+  const a = [-39.6968302866538, 220.946098424521, -275.928510446969, 138.357751867269, -30.6647980661472, 2.50662827745924];
+  const b = [-54.4760987982241, 161.585836858041, -155.698979859887, 66.8013118877197, -13.2806815528857];
+  const c = [-0.00778489400243029, -0.322396458041136, -2.40075827716184, -2.54973253934373, 4.37466414146497, 2.93816398269878];
+  const d = [0.00778469570904146, 0.32246712907004, 2.445134137143, 3.75440866190742];
+  const pl = 0.02425;
+  let q, r;
+  if (p < pl) { q = Math.sqrt(-2 * Math.log(p)); return (((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) / ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1); }
+  if (p <= 1 - pl) { q = p - 0.5; r = q * q; return (((((a[0] * r + a[1]) * r + a[2]) * r + a[3]) * r + a[4]) * r + a[5]) * q / (((((b[0] * r + b[1]) * r + b[2]) * r + b[3]) * r + b[4]) * r + 1); }
+  q = Math.sqrt(-2 * Math.log(1 - p)); return -(((((c[0] * q + c[1]) * q + c[2]) * q + c[3]) * q + c[4]) * q + c[5]) / ((((d[0] * q + d[1]) * q + d[2]) * q + d[3]) * q + 1);
+}
 
 function toast(msg, type = "ok", ms = 3400) {
   const el = document.createElement("div");
@@ -938,36 +961,10 @@ function computeSeason(monthly, months) {
   }
   r.convectivity = conv;
 
-  const scale = (state.chanceScale ?? 100) / 100;
-  if (state.precipModel === "v3") {
-    // v3 realistic wet-time: Chance = % of hours precipitation actually falls.
-    // CS2 consumes Chance roughly as a share of time (official prefabs already
-    // over-rain — a widespread vanilla complaint), so anchor to physics instead:
-    // monthly mm ÷ (precip rate while falling × hours in month). Rate: light snow
-    // ~0.6 mm/h → warm stratiform rain 2.0 mm/h → convective downpours up to ~9 mm/h.
-    // Threshold-independent: wet-day counts cancel out of the math entirely.
-    const terms = months.map((i) => {
-      const x = monthly.precip[i];
-      if (x == null) return null;
-      const tmax = monthly.mdmax[i], tmin = monthly.mdmin[i];
-      const T = tmax != null && tmin != null ? (tmax + tmin) / 2 : 12;
-      const rate = (0.6 + 1.4 * clamp((T + 5) / 20, 0, 1)) * (1 + 3.5 * conv);
-      // ×3 gameplay-presence boost over the strict physical share of wet hours —
-      // set the Chance × control to ~33% if you want raw physical realism
-      return 100 * x / (rate * DAYS_IN_MONTH[i] * 24) * 3;
-    }).filter((v) => v != null);
-    r.precipChance = terms.length === 3 ? Math.min(100, avg(terms) * scale) : null;
-  } else if (pdays.length === 3) {
-    // v2: wet-day-threshold-aware factor — the doc derived 6.5 from SF (days counted
-    // at ≥0.01 in) and 5.5 from Tampere (≥0.1 mm); using the declared unit restores
-    // both prefab anchors. Convectivity discounts up to 50% (brief storms ≠ long rain).
-    const baseFactor = !v2 ? 6 : state.wetUnit == null ? 6 : state.wetUnit < 0.2 ? 5.5 : 6.5;
-    r.precipChance = Math.min(100, avg(pdays) * baseFactor * (1 - 0.5 * conv) * scale);
-  } else r.precipChance = null;
-
+  // amount / deviation / turbulence first (v4's chance solver needs the amount)
   if (intens.length === 3) {
     const meanIntensity = avg(intens);
-    // v2: soft knee above 11 mm/day — a few torrential events skew the mean upward
+    // v2+: soft knee above 11 mm/day — a few torrential events skew the mean upward
     const effIntens = v2 ? intens.map((v) => v <= 11 ? v : 11 + (v - 11) / 2) : intens;
     r.precipAmount = Math.min(100, avg(effIntens) * 6.25);
     r.precipAmountDev = clamp(r.precipAmount * 0.25, 10, 30);
@@ -978,6 +975,50 @@ function computeSeason(monthly, months) {
       r.turbulence = Math.min(0.8, Math.max(0.1, meanIntensity / 25 * tf * (1 + 0.5 * conv)));
     } else r.turbulence = null;
   } else { r.precipAmount = r.precipAmountDev = r.turbulence = null; }
+
+  // physical share of hours precipitation actually falls (v3/v4 core):
+  // monthly mm ÷ (precip rate while falling × hours in month). Rate: light snow
+  // ~0.6 mm/h → warm stratiform rain 2.0 mm/h → convective downpours up to ~9 mm/h.
+  // Threshold-independent: wet-day counts cancel out of the math entirely.
+  const wetTimeTerms = months.map((i) => {
+    const x = monthly.precip[i];
+    if (x == null) return null;
+    const tmax = monthly.mdmax[i], tmin = monthly.mdmin[i];
+    const T = tmax != null && tmin != null ? (tmax + tmin) / 2 : 12;
+    const rate = (0.6 + 1.4 * clamp((T + 5) / 20, 0, 1)) * (1 + 3.5 * conv);
+    return x / (rate * DAYS_IN_MONTH[i] * 24);
+  }).filter((v) => v != null);
+  const wetTime = wetTimeTerms.length === 3 ? avg(wetTimeTerms) : null;
+
+  const scale = (state.chanceScale ?? 100) / 100;
+  if (state.precipModel === "v4") {
+    // v4 game-exact solver, from decompiled ClimatePrefab.RebuildPrecipitationCurves:
+    // the game bakes precipitation = gaussian(Amount±Dev), then attenuates it by
+    // ×(1 − (noise − Chance)×2) where noise ~ N(0.5, ~0.18) — precipitation only
+    // reaches ZERO when noise ≥ Chance + 0.5, and is killed outright when baked
+    // cloudiness < 0.2. So Chance≥50 ⇒ nearly nonstop rain (why vanilla over-rains).
+    // Invert that gate: find Chance so the share of time with VISIBLE rain
+    // (attenuation still above ~10% of Amount, clouds ≥ 0.2) matches the physical
+    // wet-time target. Usually lands in 0–10.
+    if (wetTime != null && r.precipAmount != null) {
+      const target = wetTime * scale;
+      const pCloud = (r.cloudsAmount != null && r.cloudsAmountDev != null)
+        ? clamp(normCdf((r.cloudsAmount - 20) / (0.78 * r.cloudsAmountDev)), 0.05, 1)
+        : 0.85;
+      const tOff = 0.5 * (1 - 10 / Math.max(r.precipAmount, 15)); // visibility edge of the fade band
+      const c = 100 * (0.5 - tOff + 0.18 * probit(clamp(target / pCloud, 0.001, 0.98)));
+      r.precipChance = clamp(c, 0, 100);
+    } else r.precipChance = null;
+  } else if (state.precipModel === "v3") {
+    // v3 realistic wet-time with a ×3 gameplay-presence boost
+    r.precipChance = wetTime != null ? Math.min(100, wetTime * 300 * scale) : null;
+  } else if (pdays.length === 3) {
+    // v2: wet-day-threshold-aware factor — the doc derived 6.5 from SF (days counted
+    // at ≥0.01 in) and 5.5 from Tampere (≥0.1 mm); using the declared unit restores
+    // both prefab anchors. Convectivity discounts up to 50% (brief storms ≠ long rain).
+    const baseFactor = !v2 ? 6 : state.wetUnit == null ? 6 : state.wetUnit < 0.2 ? 5.5 : 6.5;
+    r.precipChance = Math.min(100, avg(pdays) * baseFactor * (1 - 0.5 * conv) * scale);
+  } else r.precipChance = null;
 
   return r;
 }
@@ -1490,7 +1531,8 @@ function restore() {
     if (d.globals) state.globals = { ...defaultGlobals(), ...d.globals };
     state.gDirty = new Set(d.gDirty ?? []);
     state.wetUnit = d.wetUnit ?? null;
-    state.precipModel = d.precipModel ?? "v3";
+    // v3 was only ever the transient default of one release — migrate it to v4
+    state.precipModel = (d.precipModel == null || d.precipModel === "v3") ? "v4" : d.precipModel;
     state.chanceScale = d.chanceScale ?? 100;
     $("#precipModel").value = state.precipModel;
     $("#chanceScale").value = state.chanceScale;

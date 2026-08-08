@@ -37,7 +37,19 @@ Implemented from the document *Formula for Climate Settings*, validated against 
 | Precip. Amount Deviation | `clamp(Amount × 0.25, 10, 30)` |
 | Turbulence | `min(0.8, max(0.1, intensity/25 × temp_factor × (1 + 0.5 × convectivity)))` |
 
-### The v3 precipitation chance (default)
+### The v4 precipitation chance (default — from decompiled game code)
+
+Decompiling `Game.Prefabs.Climate.ClimatePrefab.RebuildPrecipitationCurves` shows how CS2
+actually consumes these values: precipitation is baked as `gaussian(Amount ± Deviation)`,
+attenuated by `×(1 − (noise − Chance)×2)` where the noise field is centered at 0.5, and hard-
+zeroed only when baked cloudiness < 0.2. **Rain fully stops only when noise ≥ Chance + 0.5** —
+that offset means Chance ≥ 50 produces near-nonstop rain (why vanilla over-rains), and even
+Chance = 0 leaves attenuated rain about half the cloudy time. v4 inverts this gate so the share
+of time with *visible* rain matches the physical wet-time; for most real climates that solves to
+**0–10**, which is the correct range for this engine. The engine cannot rain less than its
+floor (~15–30% of cloudy time at Chance 0) without also lowering the cloud values.
+
+### The v3 precipitation chance (selectable)
 
 CS2 consumes Precipitation Chance roughly as a *share of time* — and the official prefabs
 already over-rain (a widespread vanilla complaint). So v3 ignores prefab anchoring and computes
