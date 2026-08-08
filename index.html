@@ -1223,6 +1223,7 @@ function globalText() {
     `Sun Elevation Clamp Start: ${fmt1(g.clampStart)} °`,
     `Freezing Temperature: ${fmt1(g.freezing)} °C`,
     `Random Seed: ${g.seed ?? "—"}`,
+    `Precipitation model: ${state.precipModel} (Chance × ${state.chanceScale ?? 100}%)`,
     "Default Weather Prefab: keep game default",
     `Default Weathers: ${DEFAULT_WEATHERS.replaceAll(" · ", ", ")}`,
   ].join("\n");
@@ -1517,6 +1518,7 @@ function persist() {
       place: state.place, hemisphere: state.hemisphere,
       globals: state.globals, gDirty: [...state.gDirty],
       wetUnit: state.wetUnit, precipModel: state.precipModel, chanceScale: state.chanceScale,
+      modelEra: 2,
     }));
   } catch {}
 }
@@ -1531,8 +1533,9 @@ function restore() {
     if (d.globals) state.globals = { ...defaultGlobals(), ...d.globals };
     state.gDirty = new Set(d.gDirty ?? []);
     state.wetUnit = d.wetUnit ?? null;
-    // v3 was only ever the transient default of one release — migrate it to v4
-    state.precipModel = (d.precipModel == null || d.precipModel === "v3") ? "v4" : d.precipModel;
+    // one-time migration to the v4 era — every earlier model/default computed
+    // over-rainy Chance values, so saved sessions are forced onto v4 once
+    state.precipModel = (d.modelEra ?? 0) >= 2 ? (d.precipModel ?? "v4") : "v4";
     state.chanceScale = d.chanceScale ?? 100;
     $("#precipModel").value = state.precipModel;
     $("#chanceScale").value = state.chanceScale;
