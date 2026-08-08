@@ -32,12 +32,24 @@ Implemented from the document *Formula for Climate Settings*, validated against 
 | Clouds Amount | `100 − sunshine %` |
 | Clouds Chance | `min(100, Clouds Amount × 1.5)` |
 | Clouds Amount Deviation | `clamp(15 + σ(monthly cloud %), 15, 30)` |
-| Precipitation Chance | **v2:** `days × factor × (1 − 0.5 × convectivity)` · **v1:** `days × 6` |
+| Precipitation Chance | **v3 (default):** realistic wet-time — `mm ÷ (rate × hours in month) × 3`, rate from warmth & convectivity · **v2:** `days × factor × (1 − 0.5 × convectivity)` · **v1:** `days × 6` |
 | Precipitation Amount | **v2:** intensity soft-knee (mm/day above 11 counts half) `× 6.25` · **v1:** raw `× 6.25` |
 | Precip. Amount Deviation | `clamp(Amount × 0.25, 10, 30)` |
 | Turbulence | `min(0.8, max(0.1, intensity/25 × temp_factor × (1 + 0.5 × convectivity)))` |
 
-### The v2 precipitation model (default; v1 selectable in the UI)
+### The v3 precipitation chance (default)
+
+CS2 consumes Precipitation Chance roughly as a *share of time* — and the official prefabs
+already over-rain (a widespread vanilla complaint). So v3 ignores prefab anchoring and computes
+the physically real share of hours precipitation falls: `monthly mm ÷ (precip rate × hours in
+month)`, where the rate runs from light snow (0.6 mm/h) through warm stratiform rain (2.0 mm/h)
+to convective downpours (~9 mm/h), times a ×3 gameplay-presence boost. Wet-day counts cancel out
+of the math entirely, so counting-threshold differences stop mattering. Typical results: Seoul
+monsoon 60, Moscow winter snow 33, San Francisco winter 27, Charleston summer thunderstorms 9
+(with Amount 75 and Turbulence 0.74 — rare, violent, fast-changing). The **Chance ×** control
+scales any model to taste; ~33% gives strict physical realism.
+
+### The v2 precipitation model (selectable, prefab-anchored)
 
 "Precipitation days" counts a day even if it only rained for one afternoon hour — which makes
 day-count-based Chance badly overstate warm convective climates (Charleston, Miami: brief

@@ -416,9 +416,13 @@
         <span class="sub">Global + per season — every field in the CS2 climate section</span>
         <div class="spacer"></div>
         <select id="precipModel" title="Precipitation model" style="background:var(--card);border:1px solid var(--border);border-radius:8px;color:var(--text-2);padding:4px 8px;font-family:inherit;font-size:12px;">
-          <option value="v2" selected>Precip v2 · convective-corrected</option>
+          <option value="v3" selected>Precip v3 · realistic wet-time</option>
+          <option value="v2">Precip v2 · prefab-anchored</option>
           <option value="v1">Precip v1 · original doc</option>
         </select>
+        <label title="Precipitation Chance multiplier — trim rain frequency to taste" style="display:inline-flex;align-items:center;gap:5px;color:var(--text-3);font-size:12px;">
+          Chance ×<input id="chanceScale" type="number" min="10" max="300" step="5" value="100" style="width:56px;background:var(--card);border:1px solid var(--border);border-radius:8px;color:var(--text-1);padding:3px 6px;font-family:inherit;font-size:12px;text-align:center;">%
+        </label>
         <button class="btn small" id="btnCopyAll">Copy all</button>
         <button class="btn small" id="btnExport">Export JSON</button>
       </div>
@@ -468,6 +472,7 @@
       <div><b>Clouds Amount</b> — <code>100 − sunshine %</code></div>
       <div><b>Clouds Chance</b> — <code>min(100, Clouds Amount × 1.5)</code></div>
       <div><b>Clouds Amount Deviation</b> — <code>clamp(15 + σ(monthly cloud %), 15, 30)</code></div>
+      <div><b>Precipitation Chance (v3, default)</b> — realistic wet-time: <code>monthly mm ÷ (rate × hours in month) × 3</code>, rate = <code>(0.6 + 1.4×warmth) × (1 + 3.5×convectivity)</code> mm/h (light snow 0.6 → warm rain 2.0 → convective downpour ~9). CS2 consumes Chance roughly as share-of-time and official prefabs already over-rain, so this anchors to physics (×3 keeps weather present in gameplay; set Chance × to 33% for strict realism). The <b>Chance ×%</b> box scales any model to taste</div>
       <div><b>Precipitation Chance (v2)</b> — <code>days × factor × (1 − 0.5 × convectivity)</code>; factor 5.5 (≥0.1 mm counting) / 6.5 (≥0.25 mm) restores the SF/Tampere prefab anchors; v1: <code>days × 6</code></div>
       <div><b>Convectivity</b> — <code>warm((T−15)/10) × sunny((sun% − 40)/30)</code>, each clamped 0–1. Hot + sunny-despite-rain = brief afternoon thunderstorms (Charleston, Miami) get up to −50% Chance; overcast monsoon/frontal rain (Seoul jangma, London) is untouched</div>
       <div><b>Precipitation Amount (v2)</b> — intensity soft-knee: mm/day above 11 counts half (a few torrential events skew the mean), then <code>× 6.25</code>; v1: raw <code>× 6.25</code></div>
@@ -518,7 +523,8 @@ const state = {
   globals: defaultGlobals(),
   gDirty: new Set(),        // globals the user edited by hand (not auto-recomputed)
   wetUnit: null,            // wet-day counting threshold in mm (from wiki box / OM setting)
-  precipModel: "v2",        // 'v2' convective-corrected (default) | 'v1' original doc
+  precipModel: "v3",        // 'v3' realistic wet-time (default) | 'v2' convective-corrected | 'v1' original doc
+  chanceScale: 100,         // % multiplier applied to Precipitation Chance in every model
 };
 
 function defaultGlobals() {
@@ -932,12 +938,31 @@ function computeSeason(monthly, months) {
   }
   r.convectivity = conv;
 
-  if (pdays.length === 3) {
+  const scale = (state.chanceScale ?? 100) / 100;
+  if (state.precipModel === "v3") {
+    // v3 realistic wet-time: Chance = % of hours precipitation actually falls.
+    // CS2 consumes Chance roughly as a share of time (official prefabs already
+    // over-rain — a widespread vanilla complaint), so anchor to physics instead:
+    // monthly mm ÷ (precip rate while falling × hours in month). Rate: light snow
+    // ~0.6 mm/h → warm stratiform rain 2.0 mm/h → convective downpours up to ~9 mm/h.
+    // Threshold-independent: wet-day counts cancel out of the math entirely.
+    const terms = months.map((i) => {
+      const x = monthly.precip[i];
+      if (x == null) return null;
+      const tmax = monthly.mdmax[i], tmin = monthly.mdmin[i];
+      const T = tmax != null && tmin != null ? (tmax + tmin) / 2 : 12;
+      const rate = (0.6 + 1.4 * clamp((T + 5) / 20, 0, 1)) * (1 + 3.5 * conv);
+      // ×3 gameplay-presence boost over the strict physical share of wet hours —
+      // set the Chance × control to ~33% if you want raw physical realism
+      return 100 * x / (rate * DAYS_IN_MONTH[i] * 24) * 3;
+    }).filter((v) => v != null);
+    r.precipChance = terms.length === 3 ? Math.min(100, avg(terms) * scale) : null;
+  } else if (pdays.length === 3) {
     // v2: wet-day-threshold-aware factor — the doc derived 6.5 from SF (days counted
     // at ≥0.01 in) and 5.5 from Tampere (≥0.1 mm); using the declared unit restores
     // both prefab anchors. Convectivity discounts up to 50% (brief storms ≠ long rain).
     const baseFactor = !v2 ? 6 : state.wetUnit == null ? 6 : state.wetUnit < 0.2 ? 5.5 : 6.5;
-    r.precipChance = Math.min(100, avg(pdays) * baseFactor * (1 - 0.5 * conv));
+    r.precipChance = Math.min(100, avg(pdays) * baseFactor * (1 - 0.5 * conv) * scale);
   } else r.precipChance = null;
 
   if (intens.length === 3) {
@@ -1450,7 +1475,7 @@ function persist() {
       monthly: state.monthly, fieldSource: state.fieldSource,
       place: state.place, hemisphere: state.hemisphere,
       globals: state.globals, gDirty: [...state.gDirty],
-      wetUnit: state.wetUnit, precipModel: state.precipModel,
+      wetUnit: state.wetUnit, precipModel: state.precipModel, chanceScale: state.chanceScale,
     }));
   } catch {}
 }
@@ -1465,8 +1490,10 @@ function restore() {
     if (d.globals) state.globals = { ...defaultGlobals(), ...d.globals };
     state.gDirty = new Set(d.gDirty ?? []);
     state.wetUnit = d.wetUnit ?? null;
-    state.precipModel = d.precipModel ?? "v2";
+    state.precipModel = d.precipModel ?? "v3";
+    state.chanceScale = d.chanceScale ?? 100;
     $("#precipModel").value = state.precipModel;
+    $("#chanceScale").value = state.chanceScale;
     setHemisphere(state.hemisphere, false);
     refreshAll();
   } catch {}
@@ -1503,6 +1530,12 @@ $("#wetThreshold").addEventListener("change", () => {
 });
 $("#precipModel").addEventListener("change", () => {
   state.precipModel = $("#precipModel").value;
+  renderResults();
+  persist();
+});
+$("#chanceScale").addEventListener("input", () => {
+  const v = parseFloat($("#chanceScale").value);
+  state.chanceScale = isFinite(v) ? clamp(v, 10, 300) : 100;
   renderResults();
   persist();
 });
