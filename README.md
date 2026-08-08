@@ -40,16 +40,18 @@ Inputs, per month, averaged over each season: `x` = precipitation (mm), `y` = pr
 | CS2 field | Formula |
 |---|---|
 | Temperature Night / Day | mean daily minimum / maximum |
-| Temperature Deviation | `max(2.5, σ(monthly) × 1.5)`; where mean-extreme rows exist, also `\|daily − extreme\| / 1.5`, take the larger |
+| Temperature Deviation | `max(2.5, \|daily − mean monthly extreme\| / 1.5)`, falling back to `σ(monthly) × 1.5` — see below |
 | Clouds Amount | `100 − z` |
 | Clouds Chance | `min(100, Clouds Amount × 1.5)` |
 | Clouds Amount Deviation | `clamp(15 + σ(monthly cloud %), 15, 30)` |
 | Precipitation Chance | `y × h / hours in month`, where `h = clamp(4 + (x/y)/2, 4, 16)` hours of rain per rainy day — see below |
-| Precipitation Amount | `min(100, avg(x / y) × 6.25)` — daily rain intensity on a 0–100 scale |
+| Precipitation Amount | `min(100, avg(x / y) × 6.25 × 9 / h)` — how heavy the rain looks, as a real rate — see below |
 | Precip. Amount Deviation | `clamp(Amount × 0.25, 10, 30)` |
 | Turbulence | `min(0.8, max(0.1, intensity / 25 × temp_factor))`, `temp_factor = clamp((daily mean + 5) / 15, 0.2, 1.0)` |
 
-### One deviation from the document: Precipitation Chance
+### Three corrections to the document
+
+**Precipitation Chance — count rain hours, not rain days.**
 
 The document uses `rainy_days × 6`, which treats every precipitation day as a whole wet day — and
 in game that reads far too rainy. A precipitation day is not a day of rain: it carries roughly
@@ -69,6 +71,20 @@ Checked against 30 years of measured precipitation hours (ERA5, 1991–2020):
 *(computed, measured in italics)*. London is the known outlier: it drizzles far more often than it
 rains, and ERA5 counts any hour above 0.1 mm. The **Rain time ×%** control scales the whole
 column if it still feels off in game.
+
+**Precipitation Amount — divide by the rainy day's own length.** `x/y × 6.25` is the water a
+rainy day drops, which describes how heavy the rain *looks* only if every rainy day runs as long
+as the reference one (about 9 hours, which is what San Francisco does). Dividing by the day's own
+length turns it into a real rate: London winter goes 31 → 44 and Charleston autumn 83 → 70, so
+drizzle climates stop reading heavier than downpour climates. San Francisco, the document's
+validation anchor, is unchanged at 63.
+
+**Temperature Deviation — drop the seasonal-drift term.** The document takes the larger of
+`σ(monthly) × 1.5` and `|daily − mean monthly extreme| / 1.5`. Only the second measures the
+day-to-day swing this parameter actually feeds; the spread of three monthly means mostly tracks
+the season warming or cooling, so taking the larger inflated transitional seasons — Seoul autumn
+read 8.7 °C where the real day-to-day swing is about 5. The monthly-spread form is kept as a
+fallback for tables without the mean-extreme rows.
 
 Fields the document does not cover are derived so the whole climate section can be filled in:
 Start Time from the season boundaries, Max Sun Elevation as `clamp(90 − |lat| + 23.44, 45, 90)`

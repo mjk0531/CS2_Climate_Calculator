@@ -465,12 +465,12 @@
       <div style="grid-column:1/-1;color:var(--text-3)">x = monthly precipitation (mm) · y = precipitation days per month · z = percent possible sunshine. Every value is computed per month and averaged over the season.</div>
       <div><b>Season mapping</b> — Northern: Winter=DJF, Spring=MAM, Summer=JJA, Autumn=SON / Southern: flipped</div>
       <div><b>Temperature Night / Day</b> — mean daily minimum / maximum, averaged per season</div>
-      <div><b>Temperature Deviation</b> — <code>max(2.5, σ(monthly) × 1.5)</code>; where the mean monthly extreme rows exist, also <code>|daily − extreme| / 1.5</code>, take the larger. The 2.5 floor keeps a realistic day/night swing even in stable seasons</div>
+      <div><b>Temperature Deviation</b> — <code>max(2.5, |daily − mean monthly extreme| / 1.5)</code>, which measures the day-to-day weather swing this parameter feeds; where the extreme rows are missing it falls back to <code>σ(monthly) × 1.5</code>. The document took the larger of the two, but the monthly spread mostly tracks the season warming or cooling, which inflated transitional seasons (Seoul autumn read 8.7 °C instead of ~5)</div>
       <div><b>Clouds Amount</b> — <code>100 − z</code></div>
       <div><b>Clouds Chance</b> — <code>min(100, Clouds Amount × 1.5)</code></div>
       <div><b>Clouds Amount Deviation</b> — <code>clamp(15 + σ(monthly cloud %), 15, 30)</code></div>
       <div><b>Precipitation Chance</b> — the share of time it is actually raining: <code>y × rain hours per rainy day ÷ hours in the month</code>, where a rainy day carries <code>clamp(4 + (x/y)/2, 4, 16)</code> hours of rain. A precipitation day is not a day of rain, so the document's <code>y × 6</code> — which treats every rainy day as a whole wet day — read far too high in game. The <b>Rain time ×%</b> box scales this to taste</div>
-      <div><b>Precipitation Amount</b> — <code>min(100, avg(x / y) × 6.25)</code> — daily rain intensity on a 0–100 scale</div>
+      <div><b>Precipitation Amount</b> — <code>min(100, avg(x / y) × 6.25 × 9 ÷ h)</code> — how heavy the rain looks. The document's <code>x/y × 6.25</code> is the water a rainy day drops, which only describes intensity if every rainy day runs as long as the 9-hour reference; dividing by the day's own length turns it into a real rate, so drizzle climates stop reading heavier than they are (London winter 31 → 44 against San Francisco's 63)</div>
       <div><b>Precip. Amount Deviation</b> — <code>clamp(Amount × 0.25, 10, 30)</code></div>
       <div><b>Turbulence</b> — <code>min(0.8, max(0.1, intensity / 25 × temp_factor))</code>, temp_factor = <code>clamp((daily mean + 5) / 15, 0.2, 1.0)</code> — snow-dominated seasons get suppressed turbulence, warm convective ones get all of it</div>
       <div><b>Start Time</b> — season start as a fraction of the year (Northern: Spring = Mar 1 ≈ 0.162 … / Southern: flipped)</div>
@@ -922,11 +922,16 @@ function computeSeason(monthly, months) {
   const deviation = (dailyKey, extremeKey) => {
     const daily = pick(dailyKey);
     if (daily.length !== 3) return null;
-    let d = popstd(daily) * 1.5;
     const pairs = months
       .map((i) => [monthly[dailyKey][i], monthly[extremeKey][i]])
       .filter(([a, b]) => a != null && b != null);
-    if (pairs.length === 3) d = Math.max(d, avg(pairs.map(([a, b]) => Math.abs(a - b))) / 1.5);
+    // The mean monthly extreme measures day-to-day weather swing, which is what this
+    // parameter feeds. The spread of the three monthly means is only a fallback: it
+    // mostly measures the season warming or cooling, so taking the larger of the two
+    // inflated transitional seasons badly (Seoul autumn read 8.7 °C instead of ~5).
+    const d = pairs.length === 3
+      ? avg(pairs.map(([a, b]) => Math.abs(a - b))) / 1.5
+      : popstd(daily) * 1.5;
     return Math.max(2.5, d);
   };
   r.tempDevNight = deviation("mdmin", "meanmin");
@@ -947,29 +952,34 @@ function computeSeason(monthly, months) {
         rain plus half an hour for every extra millimetre it drops, up to 16 hours.
         (The document's rainy_days × 6 treats every rainy day as a whole wet day,
         which is what made this value read far too high in game.) */
+  const REFERENCE_RAIN_HOURS = 9;   // the rainy-day length the document's factors assume
   const rainHours = (i) => {
-    const x = state.monthly.precip[i], y = state.monthly.pdays[i];
+    const x = monthly.precip[i], y = monthly.pdays[i];
     if (x == null || y == null || y <= 0) return null;
     return clamp(4 + (x / y) / 2, 4, 16);
   };
+  const hours = months.map(rainHours).filter((v) => v != null);
   const wetShare = months.map((i) => {
     const y = monthly.pdays[i], h = rainHours(i);
     return y == null || h == null ? null : 100 * y * h / (DAYS_IN_MONTH[i] * 24);
   }).filter((v) => v != null);
-  r.rainHoursPerDay = months.map(rainHours).filter((v) => v != null).length === 3
-    ? avg(months.map(rainHours).filter((v) => v != null)) : null;
+  r.rainHoursPerDay = hours.length === 3 ? avg(hours) : null;
   r.precipChance = wetShare.length === 3
     ? clamp(avg(wetShare) * (state.chanceScale ?? 100) / 100, 0, 100) : null;
 
-  /* 7–9. Precipitation Amount, its deviation, and Turbulence, all from the daily
-          rain intensity x/y */
+  /* 7–9. Precipitation Amount, its deviation, and Turbulence, from the rain intensity.
+          The document's x/y × 6.25 is the water a rainy day drops, which describes how
+          heavy the rain looks only if every rainy day lasts as long as the reference
+          one. Dividing by the day's own length makes it a real rate, so drizzle
+          climates stop reading as heavier than they are. */
   const intensity = months
     .map((i) => [monthly.precip[i], monthly.pdays[i]])
     .filter(([x, y]) => x != null && y != null)
     .map(([x, y]) => y > 0 ? x / y : 0);
   if (intensity.length === 3) {
     const meanIntensity = avg(intensity);
-    r.precipAmount = Math.min(100, meanIntensity * 6.25);           // daily intensity on a 0–100 scale
+    const lengthFactor = r.rainHoursPerDay ? REFERENCE_RAIN_HOURS / r.rainHoursPerDay : 1;
+    r.precipAmount = Math.min(100, meanIntensity * 6.25 * lengthFactor);
     r.precipAmountDev = clamp(r.precipAmount * 0.25, 10, 30);
     if (r.tempDay != null && r.tempNight != null) {
       // cold, snow-dominated seasons get suppressed turbulence; warm convective ones get all of it
