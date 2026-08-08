@@ -416,6 +416,9 @@
         <h2>CS2 Climate Settings</h2>
         <span class="sub">Global + per season — every field in the CS2 climate section</span>
         <div class="spacer"></div>
+        <label title="Scales Precipitation Chance up or down if the rain still feels off in game" style="display:inline-flex;align-items:center;gap:5px;color:var(--text-3);font-size:12px;">
+          Rain time ×<input id="chanceScale" type="number" min="10" max="300" step="5" value="100" style="width:56px;background:var(--card);border:1px solid var(--border);border-radius:8px;color:var(--text-1);padding:3px 6px;font-family:inherit;font-size:12px;text-align:center;">%
+        </label>
         <button class="btn small" id="btnCopyAll">Copy all</button>
         <button class="btn small" id="btnExport">Export JSON</button>
       </div>
@@ -466,7 +469,7 @@
       <div><b>Clouds Amount</b> — <code>100 − z</code></div>
       <div><b>Clouds Chance</b> — <code>min(100, Clouds Amount × 1.5)</code></div>
       <div><b>Clouds Amount Deviation</b> — <code>clamp(15 + σ(monthly cloud %), 15, 30)</code></div>
-      <div><b>Precipitation Chance</b> — <code>min(100, avg(y) × 6)</code> — the middle ground between the San Francisco (6.5) and Tampere (5.5) prefab patterns</div>
+      <div><b>Precipitation Chance</b> — the share of time it is actually raining: <code>y × rain hours per rainy day ÷ hours in the month</code>, where a rainy day carries <code>clamp(4 + (x/y)/2, 4, 16)</code> hours of rain. A precipitation day is not a day of rain, so the document's <code>y × 6</code> — which treats every rainy day as a whole wet day — read far too high in game. The <b>Rain time ×%</b> box scales this to taste</div>
       <div><b>Precipitation Amount</b> — <code>min(100, avg(x / y) × 6.25)</code> — daily rain intensity on a 0–100 scale</div>
       <div><b>Precip. Amount Deviation</b> — <code>clamp(Amount × 0.25, 10, 30)</code></div>
       <div><b>Turbulence</b> — <code>min(0.8, max(0.1, intensity / 25 × temp_factor))</code>, temp_factor = <code>clamp((daily mean + 5) / 15, 0.2, 1.0)</code> — snow-dominated seasons get suppressed turbulence, warm convective ones get all of it</div>
@@ -515,6 +518,7 @@ const state = {
   globals: defaultGlobals(),
   gDirty: new Set(),        // globals the user edited by hand (not auto-recomputed)
   wetUnit: null,            // wet-day counting threshold in mm (from wiki box / OM setting)
+  chanceScale: 100,         // % multiplier on Precipitation Chance, to taste
 };
 
 function defaultGlobals() {
@@ -938,9 +942,24 @@ function computeSeason(monthly, months) {
     r.cloudsAmount = r.cloudsChance = r.cloudsAmountDev = null;
   }
 
-  /* 6. Precipitation Chance — rainy days × 6 (between the SF 6.5 and Tampere 5.5 patterns) */
-  const pdays = pick("pdays");
-  r.precipChance = pdays.length === 3 ? Math.min(100, avg(pdays) * 6) : null;
+  /* 6. Precipitation Chance — the share of time it is actually raining.
+        A precipitation day is not a day of rain: it carries roughly four hours of
+        rain plus half an hour for every extra millimetre it drops, up to 16 hours.
+        (The document's rainy_days × 6 treats every rainy day as a whole wet day,
+        which is what made this value read far too high in game.) */
+  const rainHours = (i) => {
+    const x = state.monthly.precip[i], y = state.monthly.pdays[i];
+    if (x == null || y == null || y <= 0) return null;
+    return clamp(4 + (x / y) / 2, 4, 16);
+  };
+  const wetShare = months.map((i) => {
+    const y = monthly.pdays[i], h = rainHours(i);
+    return y == null || h == null ? null : 100 * y * h / (DAYS_IN_MONTH[i] * 24);
+  }).filter((v) => v != null);
+  r.rainHoursPerDay = months.map(rainHours).filter((v) => v != null).length === 3
+    ? avg(months.map(rainHours).filter((v) => v != null)) : null;
+  r.precipChance = wetShare.length === 3
+    ? clamp(avg(wetShare) * (state.chanceScale ?? 100) / 100, 0, 100) : null;
 
   /* 7–9. Precipitation Amount, its deviation, and Turbulence, all from the daily
           rain intensity x/y */
@@ -1459,7 +1478,7 @@ function persist() {
       monthly: state.monthly, fieldSource: state.fieldSource,
       place: state.place, hemisphere: state.hemisphere,
       globals: state.globals, gDirty: [...state.gDirty],
-      wetUnit: state.wetUnit,
+      wetUnit: state.wetUnit, chanceScale: state.chanceScale,
     }));
   } catch {}
 }
@@ -1474,6 +1493,8 @@ function restore() {
     if (d.globals) state.globals = { ...defaultGlobals(), ...d.globals };
     state.gDirty = new Set(d.gDirty ?? []);
     state.wetUnit = d.wetUnit ?? null;
+    state.chanceScale = d.chanceScale ?? 100;
+    $("#chanceScale").value = state.chanceScale;
     setHemisphere(state.hemisphere, false);
     refreshAll();
   } catch {}
@@ -1497,6 +1518,12 @@ $("#hemS").addEventListener("click", () => setHemisphere("S"));
 $("#btnFillMissing").addEventListener("click", () => {
   if (!state.place || state.place.lat == null) { toast("No coordinates available to fill from.", "err"); return; }
   runOpenMeteoByCoords(state.place.lat, state.place.lon, state.place.name, true);
+});
+$("#chanceScale").addEventListener("input", () => {
+  const v = parseFloat($("#chanceScale").value);
+  state.chanceScale = isFinite(v) ? clamp(v, 10, 300) : 100;
+  renderResults();
+  persist();
 });
 $("#wetThreshold").addEventListener("change", () => {
   if (state.omDaily) {

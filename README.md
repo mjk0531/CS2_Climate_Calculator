@@ -44,10 +44,31 @@ Inputs, per month, averaged over each season: `x` = precipitation (mm), `y` = pr
 | Clouds Amount | `100 − z` |
 | Clouds Chance | `min(100, Clouds Amount × 1.5)` |
 | Clouds Amount Deviation | `clamp(15 + σ(monthly cloud %), 15, 30)` |
-| Precipitation Chance | `min(100, avg(y) × 6)` — between the SF (6.5) and Tampere (5.5) prefab patterns |
+| Precipitation Chance | `y × h / hours in month`, where `h = clamp(4 + (x/y)/2, 4, 16)` hours of rain per rainy day — see below |
 | Precipitation Amount | `min(100, avg(x / y) × 6.25)` — daily rain intensity on a 0–100 scale |
 | Precip. Amount Deviation | `clamp(Amount × 0.25, 10, 30)` |
 | Turbulence | `min(0.8, max(0.1, intensity / 25 × temp_factor))`, `temp_factor = clamp((daily mean + 5) / 15, 0.2, 1.0)` |
+
+### One deviation from the document: Precipitation Chance
+
+The document uses `rainy_days × 6`, which treats every precipitation day as a whole wet day — and
+in game that reads far too rainy. A precipitation day is not a day of rain: it carries roughly
+four hours of rain plus half an hour for every extra millimetre it drops (capped at 16), so
+Precipitation Chance is the resulting **share of time it is actually raining**.
+
+Checked against 30 years of measured precipitation hours (ERA5, 1991–2020):
+
+| | Winter | Spring | Summer | Autumn |
+|---|---|---|---|---|
+| San Francisco | 14 *(16)* | 7 *(9)* | 1 *(1)* | 4 *(5)* |
+| Charleston | 11 *(11)* | 10 *(10)* | 18 *(22)* | 12 *(14)* |
+| Seoul | 4 *(6)* | 8 *(10)* | 22 *(24)* | 9 *(10)* |
+| Moscow | 20 *(17)* | 14 *(14)* | 14 *(16)* | 17 *(16)* |
+| London | 10 *(14)* | 7 *(15)* | 8 *(15)* | 10 *(14)* |
+
+*(computed, measured in italics)*. London is the known outlier: it drizzles far more often than it
+rains, and ERA5 counts any hour above 0.1 mm. The **Rain time ×%** control scales the whole
+column if it still feels off in game.
 
 Fields the document does not cover are derived so the whole climate section can be filled in:
 Start Time from the season boundaries, Max Sun Elevation as `clamp(90 − |lat| + 23.44, 45, 90)`

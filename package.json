@@ -1,7 +1,7 @@
 {
   "name": "cs2-climate-calculator",
   "productName": "CS2 Climate Calculator",
-  "version": "3.0.0",
+  "version": "3.1.0",
   "description": "Cities: Skylines II climate settings from real-world data",
   "main": "main.js",
   "author": "Bynarical",
